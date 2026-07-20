@@ -18,6 +18,11 @@ type Template = Omit<
   | "level"
   | "tacticsGroup"
   | "tacticsSecondary"
+  | "shieldHardness"
+  | "shieldHp"
+  | "classId"
+  | "archetypes"
+  | "capabilities"
 > & {
   key: string;
   name: string;
@@ -25,6 +30,11 @@ type Template = Omit<
   /** Creature level for XP + spell-rank gating (mapped to fixture `level` on instantiate). */
   creatureLevel: number;
   saveBonus?: number;
+  shieldHardness?: number;
+  shieldHp?: number;
+  classId?: string;
+  archetypes?: string[];
+  capabilities?: string[];
   /** Partial spell defs; Zod fills defaults on instantiate. */
   spells?: Array<Partial<Spell> & Pick<Spell, "id" | "name" | "kind">>;
   tacticsGroup?: TacticsGroupId;
@@ -44,6 +54,8 @@ export const PC_TEMPLATES: Template[] = [
     ac: 18,
     speedCells: 5,
     perceptionBonus: 3,
+    shieldHardness: 5,
+    shieldHp: 20,
     weapons: [
       {
         id: "longsword",
@@ -132,6 +144,10 @@ export const PC_TEMPLATES: Template[] = [
         usesPerCombat: 2,
         tactic: "control",
         applyCondition: "off-guard",
+        areaSquareCells: 2,
+        leaveTerrain: "grease",
+        terrainGlyph: "G",
+        terrainDurationRounds: 10,
       },
       {
         id: "sleep",
@@ -560,6 +576,9 @@ export function instantiate(
     start,
     tokenChar: template.tokenChar,
     level: creatureLevel,
+    classId: rest.classId,
+    archetypes: rest.archetypes ?? [],
+    capabilities: rest.capabilities ?? [],
     spells: rest.spells ?? [],
     saveBonus: rest.saveBonus ?? 3,
     tacticsGroup: rest.tacticsGroup ?? defaultTacticsGroupForRole(template.role),

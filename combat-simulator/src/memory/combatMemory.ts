@@ -11,6 +11,8 @@ import { cellId } from "./schemas.js";
 import type { Grid } from "../map/grid.js";
 import { buildGrid } from "../map/grid.js";
 import type { DecisionNode } from "../ai/decisionLog.js";
+import type { CombatStateSnapshot } from "../ai/combatStateParser.js";
+import type { GrandmasterTurnPlan } from "../ai/grandmasterLoop.js";
 import { resolveTacticsGroup } from "../ai/tacticsGroups.js";
 
 export type Condition = { id: string; name: string; value?: number };
@@ -23,6 +25,12 @@ export type CombatantState = {
   tokenChar: string;
   /** Creature/PC level (spell rank gate). */
   level: number;
+  /** Class / creature id for packet composition. */
+  classId: string;
+  /** Dedication / monster-family archetype tags. */
+  archetypes: string[];
+  /** Combat capability tags (feats / class features). */
+  capabilities: string[];
   maxHp: number;
   hp: number;
   ac: number;
@@ -43,7 +51,12 @@ export type CombatantState = {
   downed: boolean;
   actionsLeft: number;
   reactionAvailable: boolean;
+  /** Attack-trait actions taken this turn (drives MAP). */
   map: number;
+  shieldHardness: number;
+  shieldHp: number;
+  /** Raised this turn (AC +2 circumstance; cleared on EOT decay). */
+  isShieldRaised: boolean;
 };
 
 export type CombatEvent =
@@ -58,6 +71,41 @@ export type CombatEvent =
       from: string;
       to: string;
       kind: "Stride" | "Step";
+    }
+  | {
+      t: "hazard";
+      round: number;
+      actor: string;
+      cell: string;
+      dmg: number;
+      hpAfter: number;
+    }
+  | {
+      /** Spell (or effect) painted lasting terrain onto the grid (e.g. Grease → G). */
+      t: "terrain";
+      round: number;
+      actor: string;
+      spell: string;
+      spellName: string;
+      tag: string;
+      glyph: string;
+      cells: string[];
+      /** Rounds the effect lasts (0 = until combat end). */
+      durationRounds: number;
+      /** Last round the terrain remains (inclusive); 0 if permanent. */
+      expiresAtEndOfRound: number;
+      effectId: string;
+    }
+  | {
+      /** Timed terrain effect expired and was cleared from the grid. */
+      t: "terrain_expire";
+      round: number;
+      spell: string;
+      spellName: string;
+      tag: string;
+      glyph: string;
+      cells: string[];
+      effectId: string;
     }
   | {
       t: "attack";
@@ -120,6 +168,23 @@ export type CombatEvent =
       actor: string;
     }
   | {
+      t: "recovery_check";
+      round: number;
+      actor: string;
+      d20: number;
+      dc: number;
+      outcome: "crit_success" | "success" | "failure" | "crit_failure";
+      dyingBefore: number;
+      dyingAfter: number;
+      died: boolean;
+    }
+  | {
+      t: "death";
+      round: number;
+      actor: string;
+      reason: string;
+    }
+  | {
       t: "delay";
       round: number;
       actor: string;
@@ -152,6 +217,22 @@ export type DelayedEntry = {
   originalIndex: number;
 };
 
+/** Spell-created terrain with a tracked duration (e.g. Grease). */
+export type ActiveTerrainEffect = {
+  id: string;
+  spellId: string;
+  spellName: string;
+  tag: string;
+  glyph: string;
+  cells: string[];
+  createdRound: number;
+  /** 0 = permanent for the encounter. */
+  durationRounds: number;
+  /** Inclusive last round; 0 if permanent. */
+  expiresAtEndOfRound: number;
+  casterId: string;
+};
+
 export type CombatMemory = {
   encounterId: string;
   name: string;
@@ -164,9 +245,17 @@ export type CombatMemory = {
   initIndex: number;
   /** Currently Delayed combatants (not in initiative until return). */
   delayed: Map<string, DelayedEntry>;
+  /** Timed AoE terrain patches still on the map. */
+  activeTerrain: ActiveTerrainEffect[];
   events: CombatEvent[];
   /** Dual-commander decision tree (party-commander / enemy-commander). */
   decisionLog: DecisionNode[];
+  /** Per-turn Grandmaster Combat Loop plans (Steps 1–6 + 3-action budgets). */
+  grandmasterPlans: GrandmasterTurnPlan[];
+  /** Active plan for the combatant currently taking a turn (AI guidance). */
+  activeGrandmasterPlan?: GrandmasterTurnPlan;
+  /** Latest Real-Time Combat State Parser snapshot for the active actor. */
+  activeCombatState?: CombatStateSnapshot;
   weightDeltas: WeightDelta[];
   notes: string;
   hpAtRoundStart: Map<string, number>;
@@ -187,6 +276,9 @@ export function createMemory(
       role: c.role,
       tokenChar: c.tokenChar,
       level: c.level ?? 1,
+      classId: c.classId ?? c.role.toLowerCase().replace(/\s+/g, "_"),
+      archetypes: c.archetypes ?? [],
+      capabilities: c.capabilities ?? [],
       maxHp: c.maxHp,
       hp: c.maxHp,
       ac: c.ac,
@@ -205,6 +297,9 @@ export function createMemory(
       actionsLeft: 3,
       reactionAvailable: true,
       map: 0,
+      shieldHardness: c.shieldHardness ?? 0,
+      shieldHp: c.shieldHp ?? 0,
+      isShieldRaised: false,
     });
   }
   return {
@@ -218,8 +313,10 @@ export function createMemory(
     initiative: [],
     initIndex: 0,
     delayed: new Map(),
+    activeTerrain: [],
     events: [],
     decisionLog: [],
+    grandmasterPlans: [],
     weightDeltas: [],
     notes,
     hpAtRoundStart: new Map(),

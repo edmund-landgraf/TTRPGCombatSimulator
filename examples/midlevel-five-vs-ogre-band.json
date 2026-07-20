@@ -1,6 +1,6 @@
 {
-  "id": "classic-four-vs-goblins",
-  "name": "Classic Four vs Goblin Patrol",
+  "id": "midlevel-five-vs-ogre-band",
+  "name": "Level 5 Party vs Ogre Band",
   "ruleset": "pf2e",
   "width": 12,
   "height": 10,
@@ -12,23 +12,25 @@
       "side": "party",
       "role": "fighter",
       "classId": "fighter",
-      "level": 1,
-      "capabilities": ["reactive_strike", "shield_block"],
-      "archetypes": [],
+      "level": 5,
+      "capabilities": ["reactive_strike", "shield_block", "combat_flexibility"],
+      "archetypes": ["champion_dedication"],
       "tokenChar": "F",
-      "maxHp": 20,
-      "ac": 18,
+      "maxHp": 68,
+      "ac": 23,
       "speedCells": 5,
-      "perceptionBonus": 3,
+      "perceptionBonus": 8,
+      "shieldHardness": 5,
+      "shieldHp": 20,
       "start": { "x": 3, "y": 8 },
       "weapons": [
         {
           "id": "longsword",
           "kind": "melee",
-          "attackBonus": 7,
-          "damageDice": 1,
+          "attackBonus": 14,
+          "damageDice": 2,
           "damageDie": 8,
-          "damageBonus": 4,
+          "damageBonus": 6,
           "reach": 1
         }
       ],
@@ -43,7 +45,8 @@
           "End_turn": 0.1
         },
         "featureBias": { "selfPreservation": 0.3, "focusCaster": 0.4 }
-      }
+      },
+      "tacticsGroup": "frontliner"
     },
     {
       "id": "WIZ",
@@ -51,21 +54,21 @@
       "side": "party",
       "role": "wizard",
       "classId": "wizard",
-      "level": 1,
+      "level": 5,
       "capabilities": ["cast_focus"],
       "archetypes": [],
       "tokenChar": "W",
-      "maxHp": 14,
-      "ac": 15,
+      "maxHp": 42,
+      "ac": 19,
       "speedCells": 5,
-      "perceptionBonus": 2,
-      "saveBonus": 4,
+      "perceptionBonus": 7,
+      "saveBonus": 9,
       "start": { "x": 9, "y": 8 },
       "weapons": [
         {
           "id": "staff",
           "kind": "melee",
-          "attackBonus": 3,
+          "attackBonus": 8,
           "damageDice": 1,
           "damageDie": 4,
           "damageBonus": 0,
@@ -79,8 +82,8 @@
           "kind": "attack",
           "rank": 0,
           "actions": 2,
-          "attackBonus": 7,
-          "damageDice": 1,
+          "attackBonus": 12,
+          "damageDice": 2,
           "damageDie": 4,
           "damageBonus": 4,
           "rangeCells": 6,
@@ -92,50 +95,48 @@
           "kind": "save",
           "rank": 0,
           "actions": 2,
-          "damageDice": 1,
+          "damageDice": 2,
           "damageDie": 4,
           "damageBonus": 4,
           "rangeCells": 6,
-          "saveDc": 17,
+          "saveDc": 21,
           "halfOnSave": true,
           "tactic": "offense"
         },
         {
-          "id": "grease",
-          "name": "Grease",
+          "id": "fireball",
+          "name": "Fireball",
           "kind": "save",
-          "rank": 1,
+          "rank": 3,
           "actions": 2,
-          "rangeCells": 6,
-          "saveDc": 17,
-          "halfOnSave": false,
+          "damageDice": 6,
+          "damageDie": 6,
+          "damageBonus": 0,
+          "rangeCells": 10,
+          "saveDc": 21,
+          "halfOnSave": true,
           "usesPerCombat": 2,
-          "tactic": "control",
-          "applyCondition": "off-guard",
-          "areaSquareCells": 2,
-          "leaveTerrain": "grease",
-          "terrainGlyph": "G",
-          "terrainDurationRounds": 10
+          "tactic": "offense",
+          "blastRadius": 2
         },
         {
-          "id": "sleep",
-          "name": "Sleep",
+          "id": "slow",
+          "name": "Slow",
           "kind": "save",
-          "rank": 1,
+          "rank": 3,
           "actions": 2,
           "rangeCells": 6,
-          "saveDc": 17,
+          "saveDc": 21,
           "halfOnSave": false,
           "usesPerCombat": 1,
-          "tactic": "crowd_control",
-          "applyCondition": "asleep",
-          "skipIfSaveBonusGte": 5
+          "tactic": "control",
+          "applyCondition": "slowed"
         }
       ],
       "aiProfile": {
         "weights": {
-          "Cast_cantrip": 1.8,
-          "Cast_spell": 1.2,
+          "Cast_cantrip": 1.6,
+          "Cast_spell": 1.5,
           "Strike_melee": 0.05,
           "Strike_ranged": 0.2,
           "Stride_close": 0.9,
@@ -145,7 +146,9 @@
           "End_turn": 0.2
         },
         "featureBias": { "preferCover": 0.8, "selfPreservation": 0.9 }
-      }
+      },
+      "tacticsGroup": "blaster",
+      "tacticsSecondary": "battlefield_control"
     },
     {
       "id": "ROG",
@@ -153,46 +156,48 @@
       "side": "party",
       "role": "rogue",
       "classId": "rogue",
-      "level": 1,
-      "capabilities": ["sneak_attack"],
+      "level": 5,
+      "capabilities": ["sneak_attack", "ignore_difficult_terrain"],
       "archetypes": [],
       "tokenChar": "R",
-      "maxHp": 16,
-      "ac": 17,
+      "maxHp": 52,
+      "ac": 22,
       "speedCells": 6,
-      "perceptionBonus": 5,
+      "perceptionBonus": 11,
       "start": { "x": 5, "y": 8 },
       "weapons": [
         {
           "id": "shortsword",
           "kind": "melee",
-          "attackBonus": 6,
-          "damageDice": 1,
+          "attackBonus": 13,
+          "damageDice": 2,
           "damageDie": 6,
-          "damageBonus": 3,
-          "reach": 1
+          "damageBonus": 4,
+          "reach": 1,
+          "agile": true
         },
         {
           "id": "shortbow",
           "kind": "ranged",
-          "attackBonus": 6,
-          "damageDice": 1,
+          "attackBonus": 13,
+          "damageDice": 2,
           "damageDie": 6,
-          "damageBonus": 1,
+          "damageBonus": 2,
           "rangeCells": 12
         }
       ],
       "aiProfile": {
         "weights": {
-          "Strike_melee": 1.1,
+          "Strike_melee": 1.2,
           "Strike_ranged": 0.9,
           "Stride_close": 1.0,
           "Stride_cover": 0.5,
-          "Step_away": 0.4,
+          "Step_away": 0.5,
           "End_turn": 0.1
         },
         "featureBias": { "selfPreservation": 0.5 }
-      }
+      },
+      "tacticsGroup": "flanker"
     },
     {
       "id": "CLR",
@@ -200,24 +205,26 @@
       "side": "party",
       "role": "cleric",
       "classId": "cleric",
-      "level": 1,
-      "capabilities": ["heal_font"],
+      "level": 5,
+      "capabilities": ["heal_font", "shield_block"],
       "archetypes": [],
       "tokenChar": "C",
-      "maxHp": 18,
-      "ac": 17,
+      "maxHp": 58,
+      "ac": 21,
       "speedCells": 5,
-      "perceptionBonus": 3,
-      "saveBonus": 5,
+      "perceptionBonus": 10,
+      "saveBonus": 11,
+      "shieldHardness": 3,
+      "shieldHp": 12,
       "start": { "x": 7, "y": 8 },
       "weapons": [
         {
           "id": "mace",
           "kind": "melee",
-          "attackBonus": 6,
-          "damageDice": 1,
+          "attackBonus": 11,
+          "damageDice": 2,
           "damageDie": 8,
-          "damageBonus": 2,
+          "damageBonus": 3,
           "reach": 1
         }
       ],
@@ -228,8 +235,8 @@
           "kind": "attack",
           "rank": 0,
           "actions": 2,
-          "attackBonus": 7,
-          "damageDice": 1,
+          "attackBonus": 12,
+          "damageDice": 2,
           "damageDie": 4,
           "damageBonus": 4,
           "rangeCells": 6
@@ -238,19 +245,19 @@
           "id": "heal",
           "name": "Heal",
           "kind": "heal",
-          "rank": 1,
+          "rank": 3,
           "actions": 2,
-          "healDice": 1,
+          "healDice": 3,
           "healDie": 8,
-          "healBonus": 8,
+          "healBonus": 24,
           "rangeCells": 6,
-          "usesPerCombat": 3
+          "usesPerCombat": 5
         }
       ],
       "aiProfile": {
         "weights": {
-          "Cast_cantrip": 1.5,
-          "Heal_ally": 2.0,
+          "Cast_cantrip": 1.4,
+          "Heal_ally": 2.2,
           "Cast_spell": 0.8,
           "Strike_melee": 0.25,
           "Strike_ranged": 0.1,
@@ -260,27 +267,72 @@
           "End_turn": 0.1
         },
         "featureBias": { "selfPreservation": 0.4 }
-      }
+      },
+      "tacticsGroup": "healer"
+    },
+    {
+      "id": "OGR",
+      "name": "Ogre Warrior",
+      "side": "enemy",
+      "role": "ogre",
+      "classId": "monster_brute",
+      "level": 3,
+      "capabilities": ["sudden_charge"],
+      "archetypes": [],
+      "tokenChar": "O",
+      "maxHp": 60,
+      "ac": 19,
+      "speedCells": 5,
+      "perceptionBonus": 6,
+      "saveBonus": 8,
+      "start": { "x": 5, "y": 4 },
+      "weapons": [
+        {
+          "id": "ogre_hook",
+          "kind": "melee",
+          "attackBonus": 12,
+          "damageDice": 2,
+          "damageDie": 10,
+          "damageBonus": 6,
+          "reach": 2
+        }
+      ],
+      "aiProfile": {
+        "weights": {
+          "Strike_melee": 1.5,
+          "Strike_ranged": 0.0,
+          "Stride_close": 1.3,
+          "Stride_cover": 0.1,
+          "Step_away": 0.1,
+          "End_turn": 0.05
+        },
+        "featureBias": { "focusCaster": 0.6 }
+      },
+      "tacticsGroup": "frontliner"
     },
     {
       "id": "GB1",
-      "name": "Goblin Blade 1",
+      "name": "Hobgoblin Soldier",
       "side": "enemy",
       "role": "blade",
+      "classId": "monster_brute",
+      "level": 2,
+      "capabilities": ["reactive_strike"],
+      "archetypes": [],
       "tokenChar": "b",
-      "maxHp": 12,
-      "ac": 16,
+      "maxHp": 30,
+      "ac": 18,
       "speedCells": 5,
-      "perceptionBonus": 2,
+      "perceptionBonus": 5,
       "start": { "x": 3, "y": 5 },
       "weapons": [
         {
-          "id": "dogslicer",
+          "id": "longsword",
           "kind": "melee",
-          "attackBonus": 5,
+          "attackBonus": 10,
           "damageDice": 1,
-          "damageDie": 6,
-          "damageBonus": 2,
+          "damageDie": 8,
+          "damageBonus": 4,
           "reach": 1
         }
       ],
@@ -293,60 +345,32 @@
           "Step_away": 0.2,
           "End_turn": 0.1
         }
-      }
+      },
+      "tacticsGroup": "frontliner"
     },
     {
       "id": "GB2",
-      "name": "Goblin Blade 2",
-      "side": "enemy",
-      "role": "blade",
-      "tokenChar": "b",
-      "maxHp": 12,
-      "ac": 16,
-      "speedCells": 5,
-      "perceptionBonus": 2,
-      "start": { "x": 9, "y": 5 },
-      "weapons": [
-        {
-          "id": "dogslicer",
-          "kind": "melee",
-          "attackBonus": 5,
-          "damageDice": 1,
-          "damageDie": 6,
-          "damageBonus": 2,
-          "reach": 1
-        }
-      ],
-      "aiProfile": {
-        "weights": {
-          "Strike_melee": 1.3,
-          "Strike_ranged": 0.1,
-          "Stride_close": 1.0,
-          "Stride_cover": 0.2,
-          "Step_away": 0.2,
-          "End_turn": 0.1
-        }
-      }
-    },
-    {
-      "id": "GA1",
-      "name": "Goblin Archer 1",
+      "name": "Hobgoblin Archer",
       "side": "enemy",
       "role": "archer",
+      "classId": "monster_skirmisher",
+      "level": 2,
+      "capabilities": [],
+      "archetypes": [],
       "tokenChar": "a",
-      "maxHp": 10,
-      "ac": 15,
+      "maxHp": 26,
+      "ac": 17,
       "speedCells": 5,
-      "perceptionBonus": 3,
-      "start": { "x": 4, "y": 2 },
+      "perceptionBonus": 6,
+      "start": { "x": 8, "y": 3 },
       "weapons": [
         {
-          "id": "shortbow",
+          "id": "composite_bow",
           "kind": "ranged",
-          "attackBonus": 5,
+          "attackBonus": 10,
           "damageDice": 1,
-          "damageDie": 6,
-          "damageBonus": 1,
+          "damageDie": 8,
+          "damageBonus": 3,
           "rangeCells": 12
         }
       ],
@@ -360,62 +384,33 @@
           "End_turn": 0.1
         },
         "featureBias": { "preferCover": 0.9, "focusCaster": 0.6 }
-      }
-    },
-    {
-      "id": "GA2",
-      "name": "Goblin Archer 2",
-      "side": "enemy",
-      "role": "archer",
-      "tokenChar": "a",
-      "maxHp": 10,
-      "ac": 15,
-      "speedCells": 5,
-      "perceptionBonus": 3,
-      "start": { "x": 7, "y": 2 },
-      "weapons": [
-        {
-          "id": "shortbow",
-          "kind": "ranged",
-          "attackBonus": 5,
-          "damageDice": 1,
-          "damageDie": 6,
-          "damageBonus": 1,
-          "rangeCells": 12
-        }
-      ],
-      "aiProfile": {
-        "weights": {
-          "Strike_melee": 0.2,
-          "Strike_ranged": 1.4,
-          "Stride_close": 0.2,
-          "Stride_cover": 0.9,
-          "Step_away": 0.8,
-          "End_turn": 0.1
-        },
-        "featureBias": { "preferCover": 0.9, "focusCaster": 0.6 }
-      }
+      },
+      "tacticsGroup": "archer"
     },
     {
       "id": "SHA",
-      "name": "Goblin Shaman",
+      "name": "Orc Shaman",
       "side": "enemy",
       "role": "shaman",
+      "classId": "monster_controller",
+      "level": 3,
+      "capabilities": ["cast_focus"],
+      "archetypes": [],
       "tokenChar": "S",
-      "maxHp": 15,
-      "ac": 15,
+      "maxHp": 40,
+      "ac": 18,
       "speedCells": 5,
-      "perceptionBonus": 2,
-      "saveBonus": 4,
+      "perceptionBonus": 7,
+      "saveBonus": 8,
       "start": { "x": 10, "y": 2 },
       "weapons": [
         {
           "id": "spear",
           "kind": "melee",
-          "attackBonus": 4,
+          "attackBonus": 9,
           "damageDice": 1,
-          "damageDie": 6,
-          "damageBonus": 1,
+          "damageDie": 8,
+          "damageBonus": 2,
           "reach": 1
         }
       ],
@@ -426,16 +421,31 @@
           "kind": "attack",
           "rank": 0,
           "actions": 2,
-          "attackBonus": 6,
-          "damageDice": 1,
+          "attackBonus": 10,
+          "damageDice": 2,
           "damageDie": 4,
-          "damageBonus": 3,
-          "rangeCells": 6
+          "damageBonus": 4,
+          "rangeCells": 6,
+          "tactic": "offense"
+        },
+        {
+          "id": "fear",
+          "name": "Fear",
+          "kind": "save",
+          "rank": 1,
+          "actions": 2,
+          "rangeCells": 6,
+          "saveDc": 19,
+          "halfOnSave": false,
+          "usesPerCombat": 2,
+          "tactic": "control",
+          "applyCondition": "frightened"
         }
       ],
       "aiProfile": {
         "weights": {
-          "Cast_cantrip": 1.5,
+          "Cast_cantrip": 1.4,
+          "Cast_spell": 1.3,
           "Strike_melee": 0.3,
           "Strike_ranged": 0.2,
           "Stride_close": 0.3,
@@ -444,7 +454,8 @@
           "End_turn": 0.2
         },
         "featureBias": { "preferCover": 1.0, "selfPreservation": 0.8, "focusCaster": 0.5 }
-      }
+      },
+      "tacticsGroup": "battlefield_control"
     }
   ]
 }

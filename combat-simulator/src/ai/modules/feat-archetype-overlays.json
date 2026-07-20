@@ -1,0 +1,102 @@
+{
+  "moduleName": "Feat & Archetype Overlays",
+  "version": "1.0.0",
+  "description": "Capability/archetype tags mutate role packets: priority bumps, action rewrites, reaction hooks, terrain exceptions.",
+  "overlays": {
+    "reactive_strike": {
+      "kind": "capability",
+      "priorityBonus": 2,
+      "preferPacketIds": ["engage_and_hold", "flank_crit_fish"],
+      "reactionHooks": ["Reactive Strike (AoO)"],
+      "a3Rewrite": {
+        "name": "Raise a Shield / hold reaction geometry",
+        "intent": "End adjacent to threaten Reactive Strike; avoid third Strike",
+        "head": "Raise_Shield"
+      },
+      "scoreHints": { "reactionSetup": 1.5, "eotAdjacent": 1.0 }
+    },
+    "sneak_attack": {
+      "kind": "capability",
+      "priorityBonus": 3,
+      "preferPacketIds": ["flank_sneak", "skirmish_exit"],
+      "requireOffGuardBias": true,
+      "scoreHints": { "flankSetup": 2.5, "offGuardStrike": 2.0 }
+    },
+    "flurry_of_blows": {
+      "kind": "capability",
+      "priorityBonus": 2,
+      "preferPacketIds": ["flurry_skirmish", "skirmish_exit"],
+      "a1Rewrite": {
+        "name": "Flurry of Blows",
+        "intent": "Two attacks for one action at 0/−5 MAP",
+        "head": "Strike_melee"
+      },
+      "scoreHints": { "actionCompression": 1.5 }
+    },
+    "shield_block": {
+      "kind": "capability",
+      "priorityBonus": 1,
+      "preferPacketIds": ["engage_and_hold"],
+      "reactionHooks": ["Shield Block"],
+      "a3Rewrite": {
+        "name": "Raise a Shield",
+        "intent": "Unlock Shield Block reaction",
+        "head": "Raise_Shield"
+      },
+      "scoreHints": { "shieldLayer": 1.2 }
+    },
+    "sudden_charge": {
+      "kind": "capability",
+      "priorityBonus": 3,
+      "preferPacketIds": ["sudden_charge_crash"],
+      "scoreHints": { "closeAndStrike": 2.0 }
+    },
+    "inspire_courage": {
+      "kind": "capability",
+      "priorityBonus": 3,
+      "preferPacketIds": ["buff_then_blast"],
+      "a1Rewrite": {
+        "name": "Courageous Anthem / Inspire Courage",
+        "intent": "+1 status to party attacks/damage before offense",
+        "head": "Cast_spell"
+      },
+      "scoreHints": { "mathBuffFirst": 2.5 }
+    },
+    "heal_font": {
+      "kind": "capability",
+      "priorityBonus": 2,
+      "preferPacketIds": ["focus_fire_wounded"],
+      "scoreHints": { "triage": 2.5, "fontHeal": 2.0 }
+    },
+    "cast_focus": {
+      "kind": "capability",
+      "priorityBonus": 2,
+      "preferPacketIds": ["save_arbitrage_blast", "control_then_mitigate", "buff_then_blast"],
+      "resourceGate": true,
+      "scoreHints": { "focusSpell": 1.5 }
+    },
+    "ignore_difficult_terrain": {
+      "kind": "capability",
+      "priorityBonus": 0,
+      "terrainExceptions": ["difficult"],
+      "scoreHints": { "pathThroughDifficult": 1.0 }
+    },
+    "champion_dedication": {
+      "kind": "archetype",
+      "priorityBonus": 1,
+      "preferPacketIds": ["engage_and_hold"],
+      "reactionHooks": ["Reactive Strike (AoO)"],
+      "scoreHints": { "guardianPlant": 1.0 }
+    },
+    "undead": {
+      "kind": "archetype",
+      "priorityBonus": 0,
+      "scoreHints": { "ignoreFear": 0.5 }
+    },
+    "combat_flexibility": {
+      "kind": "capability",
+      "priorityBonus": 1,
+      "scoreHints": { "packetVariety": 1.0 }
+    }
+  }
+}

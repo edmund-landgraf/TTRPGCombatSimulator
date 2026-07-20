@@ -19,7 +19,9 @@ Hard rules:
 - If something is not in the context, say you don't know from the current snapshot.
 - When PAUSED, answer from the completed round log + status (e.g. "Cleric already cast Heal this round" if the log shows it).
 - Prefer clear, short answers. Use bullets when listing options or distances.
-- You may explain PF2e rules using the context as examples.`;
+- You may explain PF2e rules using the context as examples.
+- When a combatant is Dying / unconscious / dead, use the vital labels and notes in context (Dying N, recovery checks, dies at Dying 4). Do not invent Dying values.
+- If a LOOP MATRIX BRIEFING is present, use it for best/worst cells and advice questions about the challenge loop.`;
 
 function formatStudioFallbackForLlm(): string {
   const s = studioSummary(studioState);
@@ -57,10 +59,14 @@ function contextBlockForChat(opts?: { runInFlight?: boolean }): string | null {
 export async function answerCompanionChat(
   userMessage: string,
   ollama: OllamaProvider,
-  opts?: { runInFlight?: boolean },
+  opts?: { runInFlight?: boolean; loopBriefingText?: string | null },
 ): Promise<string> {
   const contextBlock = contextBlockForChat(opts);
-  if (!contextBlock) {
+  const loopBlock = opts?.loopBriefingText?.trim()
+    ? `\n\n--- LOOP MATRIX BRIEFING (read-only) ---\n${opts.loopBriefingText.trim()}\n--- END LOOP BRIEFING ---`
+    : "";
+
+  if (!contextBlock && !loopBlock) {
     return "No combat or studio roster is loaded yet. Import PCs/enemies (or wait for the auto-seeded classic fight) so I can see the battlefield.";
   }
 
@@ -71,8 +77,12 @@ export async function answerCompanionChat(
 
   companionSession.addChat("user", userMessage);
 
+  const combatSection = contextBlock
+    ? `--- CURRENT COMBAT CONTEXT (read-only, auto-loaded) ---\n${contextBlock}\n--- END CONTEXT ---`
+    : "--- CURRENT COMBAT CONTEXT ---\n(no live combat)\n--- END CONTEXT ---";
+
   const result = await ollama.chat({
-    system: `${SYSTEM}\n\n--- CURRENT COMBAT CONTEXT (read-only, auto-loaded) ---\n${contextBlock}\n--- END CONTEXT ---`,
+    system: `${SYSTEM}\n\n${combatSection}${loopBlock}`,
     messages: [...history, { role: "user", content: userMessage }],
     temperature: 0.35,
   });

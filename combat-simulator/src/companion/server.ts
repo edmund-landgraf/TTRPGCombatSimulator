@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ensureLoopBriefing,
   renderChallengeMatrixHtml,
   runChallengeMatrix,
   writeChallengeMatrixArtifacts,
@@ -23,10 +24,12 @@ import {
   generateAsciiSquareMap,
   importCombatantsJson,
   moveStudioToken,
+  paintStudioCell,
   setMapFromImageGrid,
   setStudioTacticsGroup,
   studioState,
   studioSummary,
+  type PaintBrush,
 } from "./studio.js";
 import { isTacticsGroupId, type TacticsGroupId } from "../ai/tacticsGroups.js";
 
@@ -108,6 +111,23 @@ let runInFlight = false;
 let matrixInFlight = false;
 let matrixProgress: MatrixProgress | null = null;
 let lastMatrixReport: ChallengeMatrixReport | null = null;
+
+function loadLastMatrixReport(): ChallengeMatrixReport | null {
+  if (lastMatrixReport) {
+    lastMatrixReport = ensureLoopBriefing(lastMatrixReport);
+    return lastMatrixReport;
+  }
+  const disk = path.join(runsDir(), "challenge-matrix", "challenge-matrix-report.json");
+  if (!fs.existsSync(disk)) return null;
+  try {
+    lastMatrixReport = ensureLoopBriefing(
+      JSON.parse(fs.readFileSync(disk, "utf8")) as ChallengeMatrixReport,
+    );
+    return lastMatrixReport;
+  } catch {
+    return null;
+  }
+}
 
 export function setStudioRunHooks(hooks: StudioRunHooks): void {
   runHooks = hooks;
@@ -458,6 +478,27 @@ async function handleStudioApi(
     return true;
   }
 
+  if (req.method === "POST" && pathname === "/api/studio/paint-cell") {
+    try {
+      const body = JSON.parse((await readBody(req)) || "{}") as {
+        x?: number;
+        y?: number;
+        brush?: string;
+      };
+      const brush = body.brush as PaintBrush | undefined;
+      if (body.x == null || body.y == null || (brush !== "wall" && brush !== "barricade")) {
+        json(res, 400, { error: "x, y, and brush (wall|barricade) required" });
+        return true;
+      }
+      paintStudioCell(studioState, Number(body.x), Number(body.y), brush);
+      json(res, 200, { ok: true, ...studioSummary(studioState) });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      json(res, 400, { error: msg, ...studioSummary(studioState) });
+    }
+    return true;
+  }
+
   if (req.method === "POST" && pathname === "/api/studio/set-tactics-group") {
     try {
       const body = JSON.parse((await readBody(req)) || "{}") as {
@@ -524,52 +565,37 @@ async function handleStudioApi(
   }
 
   if (req.method === "GET" && pathname === "/api/loop/status") {
+    const report = loadLastMatrixReport();
     json(res, 200, {
       running: matrixInFlight,
       progress: matrixProgress,
-      hasReport: !!lastMatrixReport,
-      summary: lastMatrixReport?.summary ?? null,
-      generatedAt: lastMatrixReport?.generatedAt ?? null,
+      hasReport: !!report,
+      summary: report?.summary ?? null,
+      generatedAt: report?.generatedAt ?? null,
+      briefingHeadline: report?.briefing?.headline ?? null,
     });
     return true;
   }
 
   if (req.method === "GET" && pathname === "/api/loop/report") {
-    if (!lastMatrixReport) {
-      // Try load from disk
-      const disk = path.join(runsDir(), "challenge-matrix", "challenge-matrix-report.json");
-      if (fs.existsSync(disk)) {
-        lastMatrixReport = JSON.parse(fs.readFileSync(disk, "utf8")) as ChallengeMatrixReport;
-      }
-    }
-    if (!lastMatrixReport) {
+    const report = loadLastMatrixReport();
+    if (!report) {
       json(res, 404, { error: "No loop report yet. Start Loop mode first." });
       return true;
     }
-    json(res, 200, lastMatrixReport);
+    json(res, 200, report);
     return true;
   }
 
   if (req.method === "GET" && pathname === "/api/loop/report.html") {
-    if (!lastMatrixReport) {
-      const diskHtml = path.join(runsDir(), "challenge-matrix", "challenge-matrix-report.html");
-      const diskJson = path.join(runsDir(), "challenge-matrix", "challenge-matrix-report.json");
-      if (fs.existsSync(diskHtml)) {
-        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(fs.readFileSync(diskHtml));
-        return true;
-      }
-      if (fs.existsSync(diskJson)) {
-        lastMatrixReport = JSON.parse(fs.readFileSync(diskJson, "utf8")) as ChallengeMatrixReport;
-      }
-    }
-    if (!lastMatrixReport) {
+    const report = loadLastMatrixReport();
+    if (!report) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("No loop report yet. Start Loop mode first.");
       return true;
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(renderChallengeMatrixHtml(lastMatrixReport));
+    res.end(renderChallengeMatrixHtml(report));
     return true;
   }
 
@@ -635,8 +661,8 @@ async function handleStudioApi(
             matrixProgress = p;
           },
         });
-        lastMatrixReport = report;
-        writeChallengeMatrixArtifacts(report, outDir);
+        lastMatrixReport = ensureLoopBriefing(report);
+        writeChallengeMatrixArtifacts(lastMatrixReport, outDir);
         matrixProgress = {
           phase: "done",
           message: "Matrix complete",
@@ -716,7 +742,11 @@ export async function startCompanionServer(opts?: {
           });
           return;
         }
-        const reply = await answerCompanionChat(message, ollama, { runInFlight });
+        const matrix = loadLastMatrixReport();
+        const reply = await answerCompanionChat(message, ollama, {
+          runInFlight,
+          loopBriefingText: matrix?.briefing?.text ?? null,
+        });
         json(res, 200, { reply, chat: companionSession.chat });
         return;
       }

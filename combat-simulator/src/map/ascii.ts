@@ -1,5 +1,5 @@
 import type { Position } from "../memory/schemas.js";
-import { cellId } from "../memory/schemas.js";
+import { cellId, terrainGlyphFor } from "../memory/schemas.js";
 import type { Grid } from "./grid.js";
 
 export type Token = { id: string; tokenChar: string; pos: Position; downed?: boolean };
@@ -32,14 +32,22 @@ export function renderAscii(
       const pos = { x, y };
       const key = cellId(pos);
       if (!grid.walkable.has(key)) {
-        row.push(" # ");
+        const wall = grid.blocked?.get(key);
+        if (wall?.tags.includes("wall_h")) row.push(" ─ ");
+        else if (wall?.tags.includes("wall_v")) row.push(" │ ");
+        else row.push(" # ");
       } else {
         const tok = byCell.get(key);
         if (tok) {
           row.push(tok.length === 1 ? ` ${tok} ` : tok.slice(0, 3).padStart(3, " "));
         } else {
           const cell = grid.walkable.get(key)!;
-          if (cell.tags.includes("cover")) row.push(" = ");
+          if (cell.tags.includes("grease")) {
+            const g = terrainGlyphFor("grease");
+            row.push(` ${g} `);
+          } else if (cell.tags.includes("barricade")) row.push(" B ");
+          else if (cell.tags.includes("cover")) row.push(" = ");
+          else if (cell.tags.includes("hazardous")) row.push(" ! ");
           else if (cell.tags.includes("difficult")) row.push(" ~ ");
           else row.push(" . ");
         }

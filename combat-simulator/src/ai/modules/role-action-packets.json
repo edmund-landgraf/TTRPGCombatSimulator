@@ -1,0 +1,298 @@
+{
+  "moduleName": "Role Action Packets",
+  "version": "1.0.0",
+  "description": "Expanded role matrices for Step 4 packet composition. Each role exposes named packet templates scored by the level-banded search.",
+  "rolePackets": {
+    "fighter": {
+      "archetype": "Critical Fisher",
+      "legacyClassPacket": "fighter",
+      "packets": [
+        {
+          "id": "flank_crit_fish",
+          "priority": 10,
+          "actions": [
+            { "name": "Trip or Stride to Flank", "intent": "Inflict Off-Guard (-2 Enemy AC)", "head": "Stride_close" },
+            { "name": "Strike", "intent": "Maximize accuracy at 0 MAP to fish for a +10 Critical Success", "head": "Strike_melee" },
+            { "name": "Press Strike or Raise a Shield", "intent": "Apply iterative pressure or secure defense", "head": "Raise_Shield" }
+          ]
+        },
+        {
+          "id": "engage_and_hold",
+          "priority": 6,
+          "actions": [
+            { "name": "Stride to engage", "intent": "Close to melee range", "head": "Stride_close" },
+            { "name": "Strike", "intent": "Primary offense at MAP 0", "head": "Strike_melee" },
+            { "name": "Raise a Shield", "intent": "Layer AC and unlock Shield Block", "head": "Raise_Shield" }
+          ]
+        }
+      ]
+    },
+    "rogue": {
+      "archetype": "Off-Guard Assassin",
+      "legacyClassPacket": "monk",
+      "packets": [
+        {
+          "id": "flank_sneak",
+          "priority": 12,
+          "actions": [
+            { "name": "Stride to Flank", "intent": "Set Off-Guard for Sneak Attack", "head": "Stride_close" },
+            { "name": "Strike", "intent": "Sneak Attack pressure at MAP 0", "head": "Strike_melee" },
+            { "name": "Step away", "intent": "Skirmish exit after the hit", "head": "Step_away" }
+          ]
+        },
+        {
+          "id": "skirmish_exit",
+          "priority": 8,
+          "actions": [
+            { "name": "Strike", "intent": "Hit then deny chase", "head": "Strike_melee" },
+            { "name": "Step away", "intent": "Leave melee reach", "head": "Step_away" },
+            { "name": "Stride / Take Cover", "intent": "Finish skirmish exit", "head": "Stride_cover" }
+          ]
+        },
+        {
+          "id": "ranged_poke",
+          "priority": 5,
+          "actions": [
+            { "name": "Take Cover / hold range", "intent": "Stay out of melee", "head": "Stride_cover" },
+            { "name": "Strike ranged", "intent": "Bow pressure while waiting for flank", "head": "Strike_ranged" },
+            { "name": "End / Step", "intent": "Preserve position", "head": "End_turn" }
+          ]
+        }
+      ]
+    },
+    "cleric": {
+      "archetype": "Triage Support",
+      "legacyClassPacket": "fighter",
+      "packets": [
+        {
+          "id": "focus_fire_wounded",
+          "priority": 7,
+          "actions": [
+            { "name": "Stride into range", "intent": "Reach heal/cast range", "head": "Stride_close" },
+            { "name": "Cast / Heal", "intent": "Heal critical ally or blast", "head": "Heal_ally" },
+            { "name": "Take Cover", "intent": "Mitigate after support", "head": "Stride_cover" }
+          ]
+        },
+        {
+          "id": "battle_cleric",
+          "priority": 5,
+          "actions": [
+            { "name": "Stride to engage", "intent": "Close if no triage needed", "head": "Stride_close" },
+            { "name": "Strike or cantrip", "intent": "Contribute damage", "head": "Strike_melee" },
+            { "name": "Raise a Shield", "intent": "Hold the mid-line", "head": "Raise_Shield" }
+          ]
+        }
+      ]
+    },
+    "champion": {
+      "archetype": "Reactive Guardian",
+      "legacyClassPacket": "fighter",
+      "packets": [
+        {
+          "id": "engage_and_hold",
+          "priority": 10,
+          "actions": [
+            { "name": "Stride to engage", "intent": "Plant in front of allies", "head": "Stride_close" },
+            { "name": "Strike", "intent": "Threaten Reactive Strike geometry", "head": "Strike_melee" },
+            { "name": "Raise a Shield", "intent": "AC + Shield Block layer", "head": "Raise_Shield" }
+          ]
+        }
+      ]
+    },
+    "ranger_archer": {
+      "archetype": "Ranged Hunter",
+      "legacyClassPacket": "other",
+      "packets": [
+        {
+          "id": "ranged_focus",
+          "priority": 10,
+          "actions": [
+            { "name": "Take Cover", "intent": "Secure +2 AC vs return fire", "head": "Stride_cover" },
+            { "name": "Strike ranged", "intent": "MAP-0 shot on priority target", "head": "Strike_ranged" },
+            { "name": "Strike or End", "intent": "Press if agile / else mitigate", "head": "End_turn" }
+          ]
+        }
+      ]
+    },
+    "barbarian": {
+      "archetype": "Rage Brute",
+      "legacyClassPacket": "fighter",
+      "packets": [
+        {
+          "id": "sudden_charge_crash",
+          "priority": 11,
+          "actions": [
+            { "name": "Sudden Charge / Stride", "intent": "Close and Strike in one burst", "head": "Stride_close" },
+            { "name": "Strike", "intent": "Primary MAP-0 hit", "head": "Strike_melee" },
+            { "name": "Strike or intimidate hold", "intent": "Press or plant", "head": "Strike_melee" }
+          ]
+        },
+        {
+          "id": "engage_and_hold",
+          "priority": 6,
+          "actions": [
+            { "name": "Stride to engage", "intent": "Close gap", "head": "Stride_close" },
+            { "name": "Strike", "intent": "Raw damage", "head": "Strike_melee" },
+            { "name": "Step / hold", "intent": "Stay in melee scrum", "head": "End_turn" }
+          ]
+        }
+      ]
+    },
+    "bard": {
+      "archetype": "Math Maximizer",
+      "legacyClassPacket": "bard",
+      "packets": [
+        {
+          "id": "buff_then_blast",
+          "priority": 12,
+          "actions": [
+            { "name": "Courageous Anthem / Inspire Courage", "intent": "Mandatory +1 global party attack/damage status buff", "head": "Cast_spell" },
+            { "name": "Cast 2-Action Slotted Spell or Bon Mot + Cantrip", "intent": "Control battlefield or drop enemy saving throws", "head": "Cast_spell" },
+            { "name": "Cantrip follow-up", "intent": "Complete 2-action packet / cantrip follow-up", "head": "Cast_cantrip" }
+          ]
+        },
+        {
+          "id": "control_then_mitigate",
+          "priority": 7,
+          "actions": [
+            { "name": "Control / debuff", "intent": "Drop enemy saves or actions", "head": "Cast_spell" },
+            { "name": "Cantrip pressure", "intent": "Safe offense", "head": "Cast_cantrip" },
+            { "name": "Take Cover", "intent": "EoT mitigate", "head": "Stride_cover" }
+          ]
+        }
+      ]
+    },
+    "monk": {
+      "archetype": "Action Denier Skirmisher",
+      "legacyClassPacket": "monk",
+      "packets": [
+        {
+          "id": "flurry_skirmish",
+          "priority": 12,
+          "actions": [
+            { "name": "Flurry of Blows", "intent": "Compress two attacks into a single action costing 0 and -5 MAP", "head": "Strike_melee" },
+            { "name": "Stride / Step away", "intent": "Move completely out of melee reach, forcing enemies to waste actions chasing", "head": "Step_away" },
+            { "name": "Finish skirmish exit", "intent": "Complete exit", "head": "Stride_close" }
+          ]
+        },
+        {
+          "id": "skirmish_exit",
+          "priority": 8,
+          "actions": [
+            { "name": "Strike", "intent": "Hit then leave", "head": "Strike_melee" },
+            { "name": "Step away", "intent": "Deny chase", "head": "Step_away" },
+            { "name": "Stride out", "intent": "Finish exit", "head": "Stride_cover" }
+          ]
+        }
+      ]
+    },
+    "wizard": {
+      "archetype": "Save Arbitrageur",
+      "legacyClassPacket": "wizard",
+      "packets": [
+        {
+          "id": "save_arbitrage_blast",
+          "priority": 12,
+          "actions": [
+            { "name": "Recall Knowledge", "intent": "Identify target's lowest saving throw DC", "head": "Recall_Knowledge" },
+            { "name": "Cast 2-Action Spell", "intent": "Target the identified weak save (Fortitude, Reflex, or Will)", "head": "Cast_spell" },
+            { "name": "Spell occupies 2–3", "intent": "2-action spell occupies actions 2–3", "head": "End_turn" }
+          ]
+        },
+        {
+          "id": "control_then_mitigate",
+          "priority": 8,
+          "actions": [
+            { "name": "Control spell", "intent": "Grease / Sleep / debuff", "head": "Cast_spell" },
+            { "name": "Cantrip", "intent": "Follow-up pressure", "head": "Cast_cantrip" },
+            { "name": "Take Cover", "intent": "Mitigate", "head": "Stride_cover" }
+          ]
+        }
+      ]
+    },
+    "monster_brute": {
+      "archetype": "Melee Pressure",
+      "legacyClassPacket": "fighter",
+      "packets": [
+        {
+          "id": "monster_crash",
+          "priority": 10,
+          "actions": [
+            { "name": "Stride to engage", "intent": "Close on softest PC", "head": "Stride_close" },
+            { "name": "Strike", "intent": "Primary attack", "head": "Strike_melee" },
+            { "name": "Strike or hold", "intent": "Press if finishing else plant", "head": "Strike_melee" }
+          ]
+        }
+      ]
+    },
+    "monster_skirmisher": {
+      "archetype": "Hit and Run",
+      "legacyClassPacket": "monk",
+      "packets": [
+        {
+          "id": "skirmish_exit",
+          "priority": 10,
+          "actions": [
+            { "name": "Stride / Strike", "intent": "Engage soft target", "head": "Stride_close" },
+            { "name": "Strike", "intent": "Hit", "head": "Strike_melee" },
+            { "name": "Step away", "intent": "Deny Reactive Strike / chase", "head": "Step_away" }
+          ]
+        }
+      ]
+    },
+    "monster_caster": {
+      "archetype": "Save / Blast",
+      "legacyClassPacket": "wizard",
+      "packets": [
+        {
+          "id": "save_arbitrage_blast",
+          "priority": 10,
+          "actions": [
+            { "name": "Cast spell", "intent": "Hit weak save / soft PC", "head": "Cast_spell" },
+            { "name": "Cantrip / second cast", "intent": "Follow-up", "head": "Cast_cantrip" },
+            { "name": "Take Cover / Step", "intent": "Mitigate", "head": "Stride_cover" }
+          ]
+        }
+      ]
+    },
+    "monster_controller": {
+      "archetype": "Action Denial",
+      "legacyClassPacket": "wizard",
+      "packets": [
+        {
+          "id": "control_then_mitigate",
+          "priority": 11,
+          "actions": [
+            { "name": "Control / debuff", "intent": "Deny PC actions or force Off-Guard", "head": "Cast_spell" },
+            { "name": "Strike or cantrip", "intent": "Capitalize", "head": "Cast_cantrip" },
+            { "name": "Take Cover", "intent": "Stay alive", "head": "Stride_cover" }
+          ]
+        },
+        {
+          "id": "monster_grab_drag",
+          "priority": 7,
+          "actions": [
+            { "name": "Stride to grab range", "intent": "Close on priority PC", "head": "Stride_close" },
+            { "name": "Strike / Grab proxy", "intent": "Lock down", "head": "Strike_melee" },
+            { "name": "Hold position", "intent": "Keep the pin", "head": "End_turn" }
+          ]
+        }
+      ]
+    },
+    "other": {
+      "archetype": "Generic Combatant",
+      "legacyClassPacket": "other",
+      "packets": [
+        {
+          "id": "generic_pressure",
+          "priority": 5,
+          "actions": [
+            { "name": "Stride to engage or Take Cover", "intent": "Position", "head": "Stride_close" },
+            { "name": "Strike", "intent": "Primary offense at MAP 0", "head": "Strike_melee" },
+            { "name": "Raise a Shield", "intent": "Mitigate", "head": "Raise_Shield" }
+          ]
+        }
+      ]
+    }
+  }
+}

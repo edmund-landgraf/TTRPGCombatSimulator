@@ -16,7 +16,13 @@ export function buildClassicFourCells(width = 12, height = 10): MapCell[] {
         continue;
       }
       if (y === 7 && x >= 2 && x <= 8) {
-        cells.push({ x, y, tags: ["floor", "difficult"] });
+        // Swamp band: difficult; a few acid pools as hazardous.
+        const hazardous = x === 3 || x === 6;
+        cells.push({
+          x,
+          y,
+          tags: hazardous ? ["floor", "difficult", "hazardous"] : ["floor", "difficult"],
+        });
         continue;
       }
       cells.push({ x, y, tags: ["floor"] });

@@ -4,6 +4,15 @@ import { buildChallenge } from "../encounters/buildChallenge.js";
 import { THREAT_EXPECTATION, type ThreatLevel } from "../encounters/pf2eBudget.js";
 import { living } from "../memory/combatMemory.js";
 import { runEncounter } from "../orch/loop.js";
+import {
+  buildLoopBriefing,
+  ensureLoopBriefing,
+  formatBriefingHtml,
+  type LoopBriefing,
+} from "./loopBriefing.js";
+
+export type { LoopBriefing } from "./loopBriefing.js";
+export { buildLoopBriefing, ensureLoopBriefing };
 
 export const MATRIX_THREATS: ThreatLevel[] = ["trivial", "moderate", "hard", "extreme"];
 export const MATRIX_PARTY_SIZES = [3, 4, 5] as const;
@@ -60,6 +69,8 @@ export type ChallengeMatrixReport = {
     extremeDeadly: number;
     tpkParty3Extreme: number;
   };
+  /** Human-style best/worst + advice (always present on fresh runs). */
+  briefing?: LoopBriefing;
 };
 
 export type MatrixProgress = {
@@ -312,7 +323,7 @@ export async function runChallengeMatrix(opts?: ChallengeMatrixOpts): Promise<Ch
   }
 
   const extremeP3 = cells.find((c) => c.partySize === 3 && c.threat === "extreme");
-  const report: ChallengeMatrixReport = {
+  const reportBase: ChallengeMatrixReport = {
     generatedAt: new Date().toISOString(),
     pathfix:
       opts?.pathNote ??
@@ -328,6 +339,7 @@ export async function runChallengeMatrix(opts?: ChallengeMatrixOpts): Promise<Ch
       tpkParty3Extreme: extremeP3 && extremeP3.wins === 0 ? extremeP3.seeds : 0,
     },
   };
+  const report = ensureLoopBriefing(reportBase);
 
   opts?.onProgress?.({
     phase: "done",
@@ -344,11 +356,12 @@ export function writeChallengeMatrixArtifacts(
   report: ChallengeMatrixReport,
   outDir: string,
 ): { jsonPath: string; htmlPath: string } {
+  const withBriefing = ensureLoopBriefing(report);
   fs.mkdirSync(outDir, { recursive: true });
   const jsonPath = path.join(outDir, "challenge-matrix-report.json");
   const htmlPath = path.join(outDir, "challenge-matrix-report.html");
-  fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2));
-  fs.writeFileSync(htmlPath, renderChallengeMatrixHtml(report));
+  fs.writeFileSync(jsonPath, JSON.stringify(withBriefing, null, 2));
+  fs.writeFileSync(htmlPath, renderChallengeMatrixHtml(withBriefing));
   return { jsonPath, htmlPath };
 }
 
@@ -407,29 +420,31 @@ function escapeHtml(s: string): string {
 }
 
 export function renderChallengeMatrixHtml(report: ChallengeMatrixReport): string {
-  const partySizes = [...new Set(report.cells.map((c) => c.partySize))].sort((a, b) => a - b);
-  const threats = MATRIX_THREATS.filter((t) => report.cells.some((c) => c.threat === t));
-  const seedsPerCell = report.cells[0]?.seeds ?? 0;
-  const seedRowsPerThreat = report.rows.filter((r) => r.threat === threats[0]).length || 0;
+  const reportWith = ensureLoopBriefing(report);
+  const briefing = reportWith.briefing!;
+  const partySizes = [...new Set(reportWith.cells.map((c) => c.partySize))].sort((a, b) => a - b);
+  const threats = MATRIX_THREATS.filter((t) => reportWith.cells.some((c) => c.threat === t));
+  const seedsPerCell = reportWith.cells[0]?.seeds ?? 0;
+  const seedRowsPerThreat = reportWith.rows.filter((r) => r.threat === threats[0]).length || 0;
 
   const avgDmgByThreat = threats.map((t) => {
-    const rows = report.cells.filter((c) => c.threat === t);
+    const rows = reportWith.cells.filter((c) => c.threat === t);
     if (!rows.length) return 0;
     return Number((rows.reduce((s, r) => s + r.avgPartyDamage, 0) / rows.length).toFixed(1));
   });
   const deathsByThreat = threats.map((t) =>
-    report.cells.filter((c) => c.threat === t).reduce((s, r) => s + r.totalPartyDowned, 0),
+    reportWith.cells.filter((c) => c.threat === t).reduce((s, r) => s + r.totalPartyDowned, 0),
   );
 
-  const trivialCells = report.cells.filter((c) => c.threat === "trivial").length;
-  const extremeCells = report.cells.filter((c) => c.threat === "extreme").length;
-  const extremeP3 = report.cells.find((c) => c.partySize === 3 && c.threat === "extreme");
+  const trivialCells = reportWith.cells.filter((c) => c.threat === "trivial").length;
+  const extremeCells = reportWith.cells.filter((c) => c.threat === "extreme").length;
+  const extremeP3 = reportWith.cells.find((c) => c.partySize === 3 && c.threat === "extreme");
   const tpk = Number(
-    report.summary.tpkParty3Extreme ??
+    reportWith.summary.tpkParty3Extreme ??
       (extremeP3 && extremeP3.wins === 0 ? extremeP3.seeds : 0),
   );
 
-  const tableRows = report.cells
+  const tableRows = reportWith.cells
     .map((c) => {
       const tone =
         c.threat === "trivial" && c.bandOk
@@ -462,7 +477,7 @@ export function renderChallengeMatrixHtml(report: ChallengeMatrixReport): string
     log: string;
   };
   const logsByCell: Record<string, LogEntry[]> = {};
-  for (const r of report.rows) {
+  for (const r of reportWith.rows) {
     const key = `${r.partySize}|${r.threat}`;
     (logsByCell[key] ??= []).push({
       seed: r.seed,
@@ -475,7 +490,7 @@ export function renderChallengeMatrixHtml(report: ChallengeMatrixReport): string
   const logsJson = JSON.stringify(logsByCell).replace(/</g, "\\u003c");
 
   const pathfix = escapeHtml(report.pathfix || "challenge matrix");
-  const when = escapeHtml(new Date(report.generatedAt).toLocaleString());
+  const when = escapeHtml(new Date(reportWith.generatedAt).toLocaleString());
   const threatLabel = threats.map((t) => (t === "hard" ? "hard(severe)" : t)).join(" / ");
 
   return `<!DOCTYPE html>
@@ -505,6 +520,12 @@ h3 { margin: 0 0 0.65rem; font-size: 0.95rem; color: var(--muted); font-weight: 
 .stat .l { color: var(--muted); font-size: 0.8rem; margin-top: 0.25rem; }
 .callout { background: var(--panel); border: 1px solid var(--border); border-left: 3px solid #6aa8c8; border-radius: 8px; padding: 0.85rem 1rem; margin: 1rem 0; color: #d5dde8; font-size: 0.92rem; line-height: 1.45; }
 .callout strong { color: var(--text); }
+.briefing { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.1rem; margin: 1.25rem 0; }
+.briefing-headline { color: var(--accent); font-weight: 600; margin: 0 0 0.75rem; }
+.briefing h3 { margin: 0.85rem 0 0.4rem; }
+.briefing ul { margin: 0; padding-left: 1.2rem; color: #d5dde8; font-size: 0.9rem; line-height: 1.45; }
+.briefing-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 900px) { .briefing-cols { grid-template-columns: 1fr; } }
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
 table { width: 100%; border-collapse: collapse; font-size: 0.88rem; background: var(--panel); }
 th, td { padding: 0.55rem 0.7rem; text-align: left; border-bottom: 1px solid var(--border); }
@@ -571,12 +592,12 @@ tr.off td.party { box-shadow: inset 3px 0 0 #c45c5c; }
 </head>
 <body>
   <h1>PF2e challenge ladder × party size</h1>
-  <p class="sub">${report.rows.length} fights · party ${partySizes.join("/")} · ${threatLabel} · ${seedsPerCell} seed${seedsPerCell === 1 ? "" : "s"} each · ${when}<br/>${pathfix}</p>
+  <p class="sub">${reportWith.rows.length} fights · party ${partySizes.join("/")} · ${threatLabel} · ${seedsPerCell} seed${seedsPerCell === 1 ? "" : "s"} each · ${when}<br/>${pathfix}</p>
 
   <div class="stats">
-    <div class="stat"><div class="v ok">${report.summary.cellsOk} / ${report.summary.cellsTotal}</div><div class="l">Band cells OK</div></div>
-    <div class="stat"><div class="v ok">${report.summary.trivialClean} / ${trivialCells || 0}</div><div class="l">Trivial: no deaths</div></div>
-    <div class="stat"><div class="v ok">${report.summary.extremeDeadly} / ${extremeCells || 0}</div><div class="l">Extreme: PC deaths</div></div>
+    <div class="stat"><div class="v ok">${reportWith.summary.cellsOk} / ${reportWith.summary.cellsTotal}</div><div class="l">Band cells OK</div></div>
+    <div class="stat"><div class="v ok">${reportWith.summary.trivialClean} / ${trivialCells || 0}</div><div class="l">Trivial: no deaths</div></div>
+    <div class="stat"><div class="v ok">${reportWith.summary.extremeDeadly} / ${extremeCells || 0}</div><div class="l">Extreme: PC deaths</div></div>
     <div class="stat"><div class="v warn">TPK×${Number.isFinite(tpk) ? tpk : 0}</div><div class="l">Party×3 vs ogre</div></div>
   </div>
 
@@ -585,6 +606,8 @@ tr.off td.party { box-shadow: inset 3px 0 0 #c45c5c; }
     Trivial should be curb-stomps (no PC deaths, ~0 damage). Extreme should kill someone.
     Hard maps to PF2e Severe (120 XP @ 4 PCs). Budgets scale ±40 XP per PC vs party of 4.
   </div>
+
+  ${formatBriefingHtml(briefing)}
 
   <h2>Results matrix</h2>
   <p class="hint-row">Click a row (or Wins) to open combat logs for each seed in that cell.</p>

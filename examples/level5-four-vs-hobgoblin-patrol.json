@@ -1,0 +1,574 @@
+{
+  "id": "level5-four-vs-hobgoblin-patrol",
+  "name": "Level 5 Four vs Hobgoblin Patrol",
+  "ruleset": "pf2e",
+  "width": 12,
+  "height": 10,
+  "cells": [],
+  "combatants": [
+    {
+      "id": "FTR",
+      "name": "Fighter",
+      "side": "party",
+      "role": "fighter",
+      "classId": "fighter",
+      "level": 5,
+      "capabilities": ["reactive_strike", "shield_block", "combat_flexibility"],
+      "archetypes": [],
+      "tokenChar": "F",
+      "maxHp": 68,
+      "ac": 23,
+      "speedCells": 5,
+      "perceptionBonus": 8,
+      "shieldHardness": 5,
+      "shieldHp": 20,
+      "start": { "x": 3, "y": 8 },
+      "weapons": [
+        {
+          "id": "longsword",
+          "kind": "melee",
+          "attackBonus": 14,
+          "damageDice": 2,
+          "damageDie": 8,
+          "damageBonus": 6,
+          "reach": 1
+        }
+      ],
+      "aiProfile": {
+        "weights": {
+          "Strike_melee": 1.4,
+          "Strike_ranged": 0.1,
+          "Stride_close": 1.2,
+          "Stride_cover": 0.3,
+          "Step_away": 0.2,
+          "Delay": 0.7,
+          "End_turn": 0.1
+        },
+        "featureBias": { "selfPreservation": 0.3, "focusCaster": 0.4 }
+      },
+      "tacticsGroup": "frontliner"
+    },
+    {
+      "id": "WIZ",
+      "name": "Wizard",
+      "side": "party",
+      "role": "wizard",
+      "classId": "wizard",
+      "level": 5,
+      "capabilities": ["cast_focus"],
+      "archetypes": [],
+      "tokenChar": "W",
+      "maxHp": 42,
+      "ac": 19,
+      "speedCells": 5,
+      "perceptionBonus": 7,
+      "saveBonus": 9,
+      "start": { "x": 9, "y": 8 },
+      "weapons": [
+        {
+          "id": "staff",
+          "kind": "melee",
+          "attackBonus": 8,
+          "damageDice": 1,
+          "damageDie": 4,
+          "damageBonus": 0,
+          "reach": 1
+        }
+      ],
+      "spells": [
+        {
+          "id": "produce_flame",
+          "name": "Produce Flame",
+          "kind": "attack",
+          "rank": 0,
+          "actions": 2,
+          "attackBonus": 12,
+          "damageDice": 2,
+          "damageDie": 4,
+          "damageBonus": 4,
+          "rangeCells": 6,
+          "tactic": "offense"
+        },
+        {
+          "id": "electric_arc",
+          "name": "Electric Arc",
+          "kind": "save",
+          "rank": 0,
+          "actions": 2,
+          "damageDice": 2,
+          "damageDie": 4,
+          "damageBonus": 4,
+          "rangeCells": 6,
+          "saveDc": 21,
+          "halfOnSave": true,
+          "tactic": "offense"
+        },
+        {
+          "id": "grease",
+          "name": "Grease",
+          "kind": "save",
+          "rank": 1,
+          "actions": 2,
+          "rangeCells": 6,
+          "saveDc": 21,
+          "halfOnSave": false,
+          "usesPerCombat": 2,
+          "tactic": "control",
+          "applyCondition": "off-guard",
+          "areaSquareCells": 2,
+          "leaveTerrain": "grease",
+          "terrainGlyph": "G",
+          "terrainDurationRounds": 10
+        },
+        {
+          "id": "fireball",
+          "name": "Fireball",
+          "kind": "save",
+          "rank": 3,
+          "actions": 2,
+          "damageDice": 6,
+          "damageDie": 6,
+          "damageBonus": 0,
+          "rangeCells": 10,
+          "saveDc": 21,
+          "halfOnSave": true,
+          "usesPerCombat": 2,
+          "tactic": "offense",
+          "blastRadius": 2
+        },
+        {
+          "id": "slow",
+          "name": "Slow",
+          "kind": "save",
+          "rank": 3,
+          "actions": 2,
+          "rangeCells": 6,
+          "saveDc": 21,
+          "halfOnSave": false,
+          "usesPerCombat": 1,
+          "tactic": "control",
+          "applyCondition": "slowed"
+        }
+      ],
+      "aiProfile": {
+        "weights": {
+          "Cast_cantrip": 1.6,
+          "Cast_spell": 1.5,
+          "Strike_melee": 0.05,
+          "Strike_ranged": 0.2,
+          "Stride_close": 0.9,
+          "Stride_cover": 0.9,
+          "Step_away": 1.0,
+          "Delay": 0.05,
+          "End_turn": 0.2
+        },
+        "featureBias": { "preferCover": 0.8, "selfPreservation": 0.9 }
+      },
+      "tacticsGroup": "blaster",
+      "tacticsSecondary": "battlefield_control"
+    },
+    {
+      "id": "ROG",
+      "name": "Rogue",
+      "side": "party",
+      "role": "rogue",
+      "classId": "rogue",
+      "level": 5,
+      "capabilities": ["sneak_attack", "ignore_difficult_terrain"],
+      "archetypes": [],
+      "tokenChar": "R",
+      "maxHp": 52,
+      "ac": 22,
+      "speedCells": 6,
+      "perceptionBonus": 11,
+      "start": { "x": 5, "y": 8 },
+      "weapons": [
+        {
+          "id": "shortsword",
+          "kind": "melee",
+          "attackBonus": 13,
+          "damageDice": 2,
+          "damageDie": 6,
+          "damageBonus": 4,
+          "reach": 1,
+          "agile": true
+        },
+        {
+          "id": "shortbow",
+          "kind": "ranged",
+          "attackBonus": 13,
+          "damageDice": 2,
+          "damageDie": 6,
+          "damageBonus": 2,
+          "rangeCells": 12
+        }
+      ],
+      "aiProfile": {
+        "weights": {
+          "Strike_melee": 1.2,
+          "Strike_ranged": 0.9,
+          "Stride_close": 1.0,
+          "Stride_cover": 0.5,
+          "Step_away": 0.5,
+          "End_turn": 0.1
+        },
+        "featureBias": { "selfPreservation": 0.5 }
+      },
+      "tacticsGroup": "flanker"
+    },
+    {
+      "id": "CLR",
+      "name": "Cleric",
+      "side": "party",
+      "role": "cleric",
+      "classId": "cleric",
+      "level": 5,
+      "capabilities": ["heal_font", "shield_block"],
+      "archetypes": [],
+      "tokenChar": "C",
+      "maxHp": 58,
+      "ac": 21,
+      "speedCells": 5,
+      "perceptionBonus": 10,
+      "saveBonus": 11,
+      "shieldHardness": 3,
+      "shieldHp": 12,
+      "start": { "x": 7, "y": 8 },
+      "weapons": [
+        {
+          "id": "mace",
+          "kind": "melee",
+          "attackBonus": 11,
+          "damageDice": 2,
+          "damageDie": 8,
+          "damageBonus": 3,
+          "reach": 1
+        }
+      ],
+      "spells": [
+        {
+          "id": "divine_lance",
+          "name": "Divine Lance",
+          "kind": "attack",
+          "rank": 0,
+          "actions": 2,
+          "attackBonus": 12,
+          "damageDice": 2,
+          "damageDie": 4,
+          "damageBonus": 4,
+          "rangeCells": 6
+        },
+        {
+          "id": "heal",
+          "name": "Heal",
+          "kind": "heal",
+          "rank": 3,
+          "actions": 2,
+          "healDice": 3,
+          "healDie": 8,
+          "healBonus": 24,
+          "rangeCells": 6,
+          "usesPerCombat": 5
+        }
+      ],
+      "aiProfile": {
+        "weights": {
+          "Cast_cantrip": 1.4,
+          "Heal_ally": 2.2,
+          "Cast_spell": 0.8,
+          "Strike_melee": 0.25,
+          "Strike_ranged": 0.1,
+          "Stride_close": 0.5,
+          "Stride_cover": 0.4,
+          "Step_away": 0.3,
+          "End_turn": 0.1
+        },
+        "featureBias": { "selfPreservation": 0.4 }
+      },
+      "tacticsGroup": "healer"
+    },
+    {
+      "id": "HB1",
+      "name": "Hobgoblin Soldier 1",
+      "side": "enemy",
+      "role": "blade",
+      "classId": "monster_brute",
+      "level": 5,
+      "capabilities": ["reactive_strike", "shield_block"],
+      "archetypes": [],
+      "tokenChar": "b",
+      "maxHp": 75,
+      "ac": 22,
+      "speedCells": 5,
+      "perceptionBonus": 9,
+      "saveBonus": 11,
+      "shieldHardness": 5,
+      "shieldHp": 20,
+      "start": { "x": 3, "y": 5 },
+      "weapons": [
+        {
+          "id": "longsword",
+          "kind": "melee",
+          "attackBonus": 15,
+          "damageDice": 2,
+          "damageDie": 8,
+          "damageBonus": 7,
+          "reach": 1
+        }
+      ],
+      "aiProfile": {
+        "weights": {
+          "Strike_melee": 1.35,
+          "Strike_ranged": 0.1,
+          "Stride_close": 1.05,
+          "Stride_cover": 0.25,
+          "Step_away": 0.2,
+          "End_turn": 0.1
+        },
+        "featureBias": { "selfPreservation": 0.35 }
+      },
+      "tacticsGroup": "frontliner"
+    },
+    {
+      "id": "HB2",
+      "name": "Hobgoblin Soldier 2",
+      "side": "enemy",
+      "role": "blade",
+      "classId": "monster_brute",
+      "level": 5,
+      "capabilities": ["reactive_strike", "shield_block"],
+      "archetypes": [],
+      "tokenChar": "b",
+      "maxHp": 75,
+      "ac": 22,
+      "speedCells": 5,
+      "perceptionBonus": 9,
+      "saveBonus": 11,
+      "shieldHardness": 5,
+      "shieldHp": 20,
+      "start": { "x": 9, "y": 5 },
+      "weapons": [
+        {
+          "id": "longsword",
+          "kind": "melee",
+          "attackBonus": 15,
+          "damageDice": 2,
+          "damageDie": 8,
+          "damageBonus": 7,
+          "reach": 1
+        }
+      ],
+      "aiProfile": {
+        "weights": {
+          "Strike_melee": 1.35,
+          "Strike_ranged": 0.1,
+          "Stride_close": 1.05,
+          "Stride_cover": 0.25,
+          "Step_away": 0.2,
+          "End_turn": 0.1
+        },
+        "featureBias": { "selfPreservation": 0.35 }
+      },
+      "tacticsGroup": "frontliner"
+    },
+    {
+      "id": "HA1",
+      "name": "Hobgoblin Archer 1",
+      "side": "enemy",
+      "role": "archer",
+      "classId": "monster_skirmisher",
+      "level": 5,
+      "capabilities": [],
+      "archetypes": [],
+      "tokenChar": "a",
+      "maxHp": 60,
+      "ac": 21,
+      "speedCells": 5,
+      "perceptionBonus": 11,
+      "saveBonus": 10,
+      "start": { "x": 4, "y": 2 },
+      "weapons": [
+        {
+          "id": "composite_longbow",
+          "kind": "ranged",
+          "attackBonus": 15,
+          "damageDice": 2,
+          "damageDie": 8,
+          "damageBonus": 5,
+          "rangeCells": 12
+        },
+        {
+          "id": "shortsword",
+          "kind": "melee",
+          "attackBonus": 13,
+          "damageDice": 2,
+          "damageDie": 6,
+          "damageBonus": 3,
+          "reach": 1,
+          "agile": true
+        }
+      ],
+      "aiProfile": {
+        "weights": {
+          "Strike_melee": 0.2,
+          "Strike_ranged": 1.45,
+          "Stride_close": 0.2,
+          "Stride_cover": 0.95,
+          "Step_away": 0.85,
+          "End_turn": 0.1
+        },
+        "featureBias": { "preferCover": 0.9, "focusCaster": 0.55 }
+      },
+      "tacticsGroup": "archer"
+    },
+    {
+      "id": "HA2",
+      "name": "Hobgoblin Archer 2",
+      "side": "enemy",
+      "role": "archer",
+      "classId": "monster_skirmisher",
+      "level": 5,
+      "capabilities": [],
+      "archetypes": [],
+      "tokenChar": "a",
+      "maxHp": 60,
+      "ac": 21,
+      "speedCells": 5,
+      "perceptionBonus": 11,
+      "saveBonus": 10,
+      "start": { "x": 7, "y": 2 },
+      "weapons": [
+        {
+          "id": "composite_longbow",
+          "kind": "ranged",
+          "attackBonus": 15,
+          "damageDice": 2,
+          "damageDie": 8,
+          "damageBonus": 5,
+          "rangeCells": 12
+        },
+        {
+          "id": "shortsword",
+          "kind": "melee",
+          "attackBonus": 13,
+          "damageDice": 2,
+          "damageDie": 6,
+          "damageBonus": 3,
+          "reach": 1,
+          "agile": true
+        }
+      ],
+      "aiProfile": {
+        "weights": {
+          "Strike_melee": 0.2,
+          "Strike_ranged": 1.45,
+          "Stride_close": 0.2,
+          "Stride_cover": 0.95,
+          "Step_away": 0.85,
+          "End_turn": 0.1
+        },
+        "featureBias": { "preferCover": 0.9, "focusCaster": 0.55 }
+      },
+      "tacticsGroup": "archer"
+    },
+    {
+      "id": "HSH",
+      "name": "Hobgoblin War Priest",
+      "side": "enemy",
+      "role": "shaman",
+      "classId": "monster_controller",
+      "level": 5,
+      "capabilities": ["cast_focus", "heal_font"],
+      "archetypes": [],
+      "tokenChar": "S",
+      "maxHp": 70,
+      "ac": 20,
+      "speedCells": 5,
+      "perceptionBonus": 10,
+      "saveBonus": 12,
+      "start": { "x": 10, "y": 2 },
+      "weapons": [
+        {
+          "id": "morningstar",
+          "kind": "melee",
+          "attackBonus": 12,
+          "damageDice": 2,
+          "damageDie": 8,
+          "damageBonus": 4,
+          "reach": 1
+        }
+      ],
+      "spells": [
+        {
+          "id": "produce_flame",
+          "name": "Produce Flame",
+          "kind": "attack",
+          "rank": 0,
+          "actions": 2,
+          "attackBonus": 13,
+          "damageDice": 2,
+          "damageDie": 4,
+          "damageBonus": 4,
+          "rangeCells": 6,
+          "tactic": "offense"
+        },
+        {
+          "id": "fear",
+          "name": "Fear",
+          "kind": "save",
+          "rank": 1,
+          "actions": 2,
+          "rangeCells": 6,
+          "saveDc": 21,
+          "halfOnSave": false,
+          "usesPerCombat": 2,
+          "tactic": "control",
+          "applyCondition": "frightened"
+        },
+        {
+          "id": "heal",
+          "name": "Heal",
+          "kind": "heal",
+          "rank": 3,
+          "actions": 2,
+          "healDice": 3,
+          "healDie": 8,
+          "healBonus": 24,
+          "rangeCells": 6,
+          "usesPerCombat": 3,
+          "tactic": "heal"
+        },
+        {
+          "id": "spiritual_weapon",
+          "name": "Spiritual Weapon",
+          "kind": "attack",
+          "rank": 2,
+          "actions": 2,
+          "attackBonus": 13,
+          "damageDice": 2,
+          "damageDie": 8,
+          "damageBonus": 4,
+          "rangeCells": 10,
+          "usesPerCombat": 2,
+          "tactic": "offense"
+        }
+      ],
+      "aiProfile": {
+        "weights": {
+          "Cast_cantrip": 1.35,
+          "Cast_spell": 1.4,
+          "Heal_ally": 1.8,
+          "Strike_melee": 0.25,
+          "Strike_ranged": 0.15,
+          "Stride_close": 0.3,
+          "Stride_cover": 1.0,
+          "Step_away": 0.9,
+          "End_turn": 0.2
+        },
+        "featureBias": { "preferCover": 1.0, "selfPreservation": 0.75, "focusCaster": 0.55 }
+      },
+      "tacticsGroup": "battlefield_control",
+      "tacticsSecondary": "healer"
+    }
+  ]
+}

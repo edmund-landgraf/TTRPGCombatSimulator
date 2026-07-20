@@ -1,7 +1,31 @@
 import type { CombatantState, CombatMemory } from "../../memory/combatMemory.js";
 import { occupiedKeys } from "../../memory/combatMemory.js";
 import { cellId, type Position } from "../../memory/schemas.js";
+import { isHazardous } from "../../map/grid.js";
 import { findPath, moveAlongPath } from "../../map/pathfind.js";
+import { HAZARD_DAMAGE_PER_CELL } from "../../ai/spatialThreat.js";
+
+function applyHazardTraversal(
+  mem: CombatMemory,
+  actor: CombatantState,
+  path: Position[],
+  round: number,
+): void {
+  for (let i = 1; i < path.length; i++) {
+    const p = path[i]!;
+    if (!isHazardous(mem.grid, p)) continue;
+    actor.hp = Math.max(0, actor.hp - HAZARD_DAMAGE_PER_CELL);
+    mem.events.push({
+      t: "hazard",
+      round,
+      actor: actor.id,
+      cell: cellId(p),
+      dmg: HAZARD_DAMAGE_PER_CELL,
+      hpAfter: actor.hp,
+    });
+    if (actor.hp <= 0) actor.downed = true;
+  }
+}
 
 export function resolveStride(
   mem: CombatMemory,
@@ -34,6 +58,10 @@ export function resolveStride(
     });
     return false;
   }
+  // Truncate event path to the cells actually traversed.
+  const destIdx = path.path.findIndex((p) => cellId(p) === cellId(dest));
+  const traversed = destIdx >= 0 ? path.path.slice(0, destIdx + 1) : path.path;
+  applyHazardTraversal(mem, actor, traversed, round);
   actor.pos = { ...dest };
   const to = cellId(actor.pos);
   mem.events.push({ t: "move", round, actor: actor.id, from, to, kind: "Stride" });
@@ -68,6 +96,7 @@ export function resolveStep(
     return false;
   }
   const from = cellId(actor.pos);
+  applyHazardTraversal(mem, actor, [actor.pos, destination], round);
   actor.pos = { ...destination };
   mem.events.push({
     t: "move",

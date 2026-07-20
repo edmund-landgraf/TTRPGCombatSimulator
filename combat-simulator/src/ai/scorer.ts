@@ -2,12 +2,29 @@ import type { CombatantState, CombatMemory } from "../memory/combatMemory.js";
 import { living } from "../memory/combatMemory.js";
 import type { ActionHead, Position, Spell, Weapon } from "../memory/schemas.js";
 import { cellId } from "../memory/schemas.js";
-import { chebyshev, hasCover } from "../map/grid.js";
+import { chebyshev, hasCover, hasCoverFromAttack } from "../map/grid.js";
+import { isCoverTags } from "../memory/schemas.js";
 import { findApproachWithinBudget, findPath } from "../map/pathfind.js";
 import { occupiedKeys } from "../memory/combatMemory.js";
 import { estimatePHit } from "../rules/pf2e/strike.js";
+import { aoeCellsForSpell, combatantsInAoe, spellHasAoe } from "../map/aoe.js";
 import { canCastSpell, estimateSpellScore } from "../rules/pf2e/spell.js";
 import { endsInMelee, flankApproachPos, isFlanking } from "./flank.js";
+import {
+  alreadyHasCover,
+  isBruteRole,
+  isCasterSquishRole,
+  isMindlessRole,
+  persistentThreat,
+  threatenedByRangedLos,
+} from "./combatLoop.js";
+import {
+  breakFlankStepPos,
+  hazardDamageAlongPath,
+  isFlankedBy,
+  pathCells,
+  wallAnchorStepPos,
+} from "./spatialThreat.js";
 import { groupFlags, tacticsGroupOf } from "./tacticsGroups.js";
 
 export type Candidate =
@@ -94,7 +111,7 @@ function coverPos(
   let best: Position | null = null;
   let bestScore = -Infinity;
   for (const cell of mem.grid.walkable.values()) {
-    if (!cell.tags.includes("cover")) continue;
+    if (!isCoverTags(cell.tags)) continue;
     const p = { x: cell.x, y: cell.y };
     if (cellId(p) === cellId(actor.pos)) continue;
     if (blocked.has(cellId(p))) continue;
@@ -154,6 +171,8 @@ export function rankCandidates(
         let score = weight("Heal_ally") * Math.min(2, missing / 8) + estimateSpellScore(mem, actor, ally, spell);
         if (ally.hp / ally.maxHp < 0.4) score += flags.healAllies ? 3.2 : 2;
         if (ally.id === actor.id) score -= 0.3;
+        // Step 1: self-aid under lethal persistent damage.
+        if (ally.id === actor.id && persistentThreat(actor)) score += 4.5;
         candidates.push({ head: "Heal_ally", score, targetId: ally.id, spell });
       }
       continue;
@@ -162,7 +181,7 @@ export function rankCandidates(
     for (const foe of foes) {
       if (!canCastSpell(mem, actor, foe, spell)) continue;
       let score = weight(head) * estimateSpellScore(mem, actor, foe, spell) * 2 + 0.4;
-      if (hasCover(mem.grid, foe.pos)) score *= 0.85;
+      if (hasCoverFromAttack(mem.grid, actor.pos, foe.pos)) score *= 0.85;
       if (foe.role.toLowerCase().includes("wizard") || foe.role.toLowerCase().includes("shaman")) {
         score += focusCaster;
       }
@@ -172,6 +191,21 @@ export function rankCandidates(
       if (flags.preferBlast && (tag === "offense" || spell.kind === "attack")) score += 0.7;
       if (flags.openWithBuffs && (tag === "support" || tag === "heal")) score += 1.1;
       if (flags.preferControl && tag === "offense") score *= 0.75;
+      // Step 3: defense-profile arbitrage (save vs AC proxies by role).
+      if (spell.kind === "save") {
+        score += Math.max(0, (6 - foe.saveBonus) * 0.15);
+        if (isBruteRole(foe.role) || isMindlessRole(foe.role)) score += 0.45;
+      }
+      if (spell.kind === "attack" && isCasterSquishRole(foe.role)) score += 0.35;
+      // AoE: prefer anchors that catch extra foes (Grease 2×2, Fireball burst).
+      if (spellHasAoe(spell) || spell.leaveTerrain) {
+        const cells = aoeCellsForSpell(mem, spell, foe.pos);
+        const hit = combatantsInAoe(mem, cells, {
+          side: actor.side === "party" ? "enemy" : "party",
+        });
+        if (hit.length > 1) score += 0.55 * (hit.length - 1);
+        if (spell.leaveTerrain) score += 0.35; // lasting terrain control value
+      }
       candidates.push({ head, score, targetId: foe.id, spell });
     }
   }
@@ -200,7 +234,7 @@ export function rankCandidates(
       const pHit = estimatePHit(mem, actor, foe, ranged);
       if (pHit > 0) {
         let score = weight("Strike_ranged") * pHit * 2;
-        if (hasCover(mem.grid, foe.pos)) score *= 0.7;
+        if (hasCoverFromAttack(mem.grid, actor.pos, foe.pos)) score *= 0.7;
         if (inMelee) score -= flags.preferMelee ? 0.4 : 1.0;
         if (flags.preferRanged && !inMelee) score += 0.55;
         if (flags.preferBlast && actor.spells.some((s) => s.kind === "attack" || s.kind === "save")) {
@@ -253,6 +287,11 @@ export function rankCandidates(
       }
       if (flags.seekFlank) score *= 0.12;
 
+      const closePath = pathCells(mem, actor.pos, closeTo, actor.speedCells, actor.id);
+      if (closePath) {
+        const haz = hazardDamageAlongPath(mem.grid, closePath);
+        if (haz > 0) score -= haz >= actor.hp ? 8 : 2.5;
+      }
       candidates.push({ head: "Stride_close", score, to: closeTo });
     }
 
@@ -263,6 +302,19 @@ export function rankCandidates(
         const alreadyCover = hasCover(mem.grid, actor.pos);
         coverScore *= alreadyCover ? 0.12 : 0.35;
         if (endsInMelee(mem, actor, cover)) coverScore *= 0.1;
+      }
+      // Step 5: EoT take-cover when ranged threats have LOS and we lack cover.
+      if (
+        actor.actionsLeft <= 1 &&
+        threatenedByRangedLos(mem, actor) &&
+        !alreadyHasCover(mem, actor)
+      ) {
+        coverScore += 2.4;
+      }
+      const coverPath = pathCells(mem, actor.pos, cover, actor.speedCells, actor.id);
+      if (coverPath) {
+        const haz = hazardDamageAlongPath(mem.grid, coverPath);
+        if (haz > 0) coverScore -= haz >= actor.hp ? 8 : 2.5;
       }
       candidates.push({
         head: "Stride_cover",
@@ -276,15 +328,33 @@ export function rankCandidates(
     const hpPct = actor.hp / actor.maxHp;
     const dist = chebyshev(actor.pos, nearest.pos);
     const threatened = inMelee || dist <= 1;
+    const flanked = isFlankedBy(mem, actor);
     const rangedInMelee =
       inMelee &&
       (keepRange || (flags.seekFlank && !isFlanking(mem, actor, nearest)));
-    if (hpPct < 0.4 || (preserve >= 0.8 && threatened) || rangedInMelee) {
+    const breakFlank = breakFlankStepPos(mem, actor);
+    if (breakFlank && canMoveTo(breakFlank)) {
+      candidates.push({
+        head: "Step_away",
+        score: weight("Step_away") + 4.5,
+        to: breakFlank,
+      });
+    }
+    const wallAnchor = wallAnchorStepPos(mem, actor);
+    if (wallAnchor && canMoveTo(wallAnchor)) {
+      candidates.push({
+        head: "Step_away",
+        score: weight("Step_away") + 2.2,
+        to: wallAnchor,
+      });
+    }
+    if (hpPct < 0.4 || (preserve >= 0.8 && threatened) || rangedInMelee || flanked) {
       const away = awayPos(mem, actor, nearest);
       if (away && canMoveTo(away) && chebyshev(away, nearest.pos) > dist) {
         let stepScore =
           weight("Step_away") + (hpPct < 0.35 ? preserve : preserve * 0.3) - (inMelee ? 0.2 : 0);
         if (rangedInMelee) stepScore += 1.8;
+        if (flanked && !isFlankedBy(mem, actor, 1, away)) stepScore += 3.5;
         candidates.push({
           head: "Step_away",
           score: stepScore,

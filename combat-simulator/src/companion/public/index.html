@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Combat Studio</title>
-    <link rel="stylesheet" href="/styles.css?v=19" />
+    <link rel="stylesheet" href="/styles.css?v=22" />
   </head>
   <body>
     <div class="shell">
@@ -13,12 +13,12 @@
         <button type="button" class="tab" data-tab="combat">Combat</button>
         <button type="button" class="tab" data-tab="logs">Logs</button>
         <button type="button" class="tab" data-tab="loop">Loop</button>
-        <button type="button" class="tab" data-tab="chat">Chat</button>
         <button type="button" id="settingsBtn" class="tab tab-settings tab-meta">Settings</button>
         <span id="model" class="pill muted">model</span>
       </nav>
 
       <div class="app">
+        <div class="main-views">
           <section id="view-setup" class="view active" aria-label="Import setup">
             <header class="combat-header">
               <div>
@@ -96,6 +96,28 @@
                     <p id="setupMapHint" class="meta setup-map-hint">
                       Load sample or import combatants — then drag tokens on the grid.
                     </p>
+                    <div id="mapToolbox" class="map-toolbox" role="toolbar" aria-label="Object brushes">
+                      <span class="map-toolbox-label">Objects</span>
+                      <button type="button" class="brush-btn active" data-brush="" title="Drag tokens (no paint)">
+                        Move
+                      </button>
+                      <button
+                        type="button"
+                        class="brush-btn"
+                        data-brush="wall"
+                        title="Wall — click for horizontal, again for vertical, again to clear"
+                      >
+                        Wall
+                      </button>
+                      <button
+                        type="button"
+                        class="brush-btn"
+                        data-brush="barricade"
+                        title="Barricade (B) — soft cover; B B B ≈ 15 ft. Click again to clear"
+                      >
+                        Barricade
+                      </button>
+                    </div>
                     <div class="battle-map-body">
                       <div id="setupMap" class="battle-map setup-map" aria-label="Setup battle grid"></div>
                       <ul id="setupLegend" class="battle-map-legend" aria-label="Map legend"></ul>
@@ -211,33 +233,56 @@
               <p id="loopFightCount" class="meta">36 fights</p>
             </form>
             <p id="loopProgress" class="meta setup-msg"></p>
+            <section id="loopBriefing" class="loop-briefing panel" hidden aria-label="Loop analysis briefing">
+              <h2>Analysis briefing</h2>
+              <p id="loopBriefingHeadline" class="loop-briefing-headline"></p>
+              <div class="loop-briefing-grid">
+                <div>
+                  <h3>How it went</h3>
+                  <ul id="loopBriefingHow"></ul>
+                </div>
+                <div>
+                  <h3>Best scenarios</h3>
+                  <ul id="loopBriefingBest"></ul>
+                </div>
+                <div>
+                  <h3>Worst scenarios</h3>
+                  <ul id="loopBriefingWorst"></ul>
+                </div>
+                <div>
+                  <h3>Try differently</h3>
+                  <ul id="loopBriefingAdvice"></ul>
+                </div>
+              </div>
+            </section>
             <iframe id="loopReportFrame" class="loop-frame" title="Challenge matrix report"></iframe>
           </section>
+        </div>
 
-          <aside id="view-chat" class="view chat" aria-label="Side chat" hidden>
-            <header class="chat-header">
-              <div>
-                <h2>Side chat</h2>
-                <p id="chatMeta" class="meta">
-                  Ask during a combat pause (Combat → Enter waits). Knows paused vs ended. Does not change combat.
-                </p>
-              </div>
-              <div class="pills header-actions">
-                <span id="chatCombatPill" class="pill muted">no combat</span>
-                <button type="button" id="clearChat" class="ghost">Clear chat</button>
-              </div>
-            </header>
-            <div id="messages" class="messages"></div>
-            <form id="chatForm" class="composer">
-              <textarea
-                id="input"
-                rows="3"
-                placeholder="e.g. Who should the wizard target?"
-                required
-              ></textarea>
-              <button type="submit" id="send">Ask</button>
-            </form>
-          </aside>
+        <aside id="view-chat" class="chat-dock" aria-label="Side chat">
+          <header class="chat-header">
+            <div>
+              <h2>Side chat</h2>
+              <p id="chatMeta" class="meta">
+                Always on — asks about the live fight or latest loop briefing. Does not change combat.
+              </p>
+            </div>
+            <div class="pills header-actions">
+              <span id="chatCombatPill" class="pill muted">no combat</span>
+              <button type="button" id="clearChat" class="ghost">Clear</button>
+            </div>
+          </header>
+          <div id="messages" class="messages"></div>
+          <form id="chatForm" class="composer">
+            <textarea
+              id="input"
+              rows="3"
+              placeholder="e.g. Where are we? Who should the wizard target?"
+              required
+            ></textarea>
+            <button type="submit" id="send">Ask</button>
+          </form>
+        </aside>
       </div>
     </div>
     <canvas id="sampleCanvas" hidden></canvas>
@@ -296,6 +341,6 @@
       </div>
     </div>
 
-    <script src="/app.js?v=20"></script>
+    <script src="/app.js?v=22"></script>
   </body>
 </html>

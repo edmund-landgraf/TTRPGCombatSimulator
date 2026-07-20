@@ -1,0 +1,62 @@
+{
+  "parserName": "Real-Time Combat State Parser",
+  "version": "1.0.0",
+  "description": "Tracks real-time combat variables, status durations, multiple attack penalties, and grid positioning to feed directly into the Grandmaster Combat Loop Core Schema. Values are live from CombatMemory — never hardcoded fixtures.",
+  "stateVariables": {
+    "roundTracking": ["currentRound", "currentTurnActive", "activeActorId"],
+    "characterVitals": [
+      "maxHP",
+      "currentHP",
+      "shieldHardness",
+      "shieldHP",
+      "isShieldRaised",
+      "baseSpeedFeet",
+      "baseSpeedCells",
+      "ac"
+    ],
+    "actionBudgetTracker": [
+      "totalActions",
+      "remainingActions",
+      "reactionAvailable",
+      "attackCount",
+      "currentMAP",
+      "agileWeaponEquipped"
+    ],
+    "spatialCoordinates": [
+      "currentGridSquare",
+      "cellId",
+      "adjacentEnemies",
+      "isFlanked",
+      "isAnchoredToWall",
+      "nearestCoverSquare",
+      "distanceToNearestCoverFeet"
+    ],
+    "activeStatusEffects": ["persistentDamage", "statusDebuffs"],
+    "knownEnemyRegistry": [
+      "enemyID",
+      "name",
+      "gridSquare",
+      "distanceInFeet",
+      "suspectedWeakSave",
+      "hasReactiveStrike",
+      "isOffGuard"
+    ]
+  },
+  "parserLogicRules": [
+    {
+      "ruleName": "Update MAP Penalty",
+      "trigger": "Agent executes an action with the [Attack] trait",
+      "logic": "Increment attackCount. currentMAP = agile ? (0/-4/-8) : (0/-5/-10) by attackCount."
+    },
+    {
+      "ruleName": "Flank Detection Algorithm",
+      "trigger": "Any position change or parseCombatState()",
+      "logic": "If two adjacent enemies lie on opposite sides/corners of the agent, isFlanked=true and Off-Guard debuff is synced."
+    },
+    {
+      "ruleName": "End of Turn Decay",
+      "trigger": "remainingActions reaches 0 / end of turn",
+      "logic": "Tick persistent damage; decrement Frightened; reset MAP and isShieldRaised."
+    }
+  ]
+}

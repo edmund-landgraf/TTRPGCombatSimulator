@@ -1,7 +1,17 @@
 import type { CombatantState, CombatMemory } from "../../memory/combatMemory.js";
 import type { Spell } from "../../memory/schemas.js";
-import { chebyshev, hasCover, hasLineOfSight } from "../../map/grid.js";
+import {
+  aoeCellsForSpell,
+  applyTimedTerrain,
+  combatantsInAoe,
+  formatCellsCompact,
+  narrativeTerrainCreated,
+  remainingTerrainRounds,
+  spellHasAoe,
+} from "../../map/aoe.js";
+import { chebyshev, hasCoverFromAttack, hasLineOfSight } from "../../map/grid.js";
 import { rollDamage } from "./damage.js";
+import { applyHealing, applyIncomingDamage, isDead } from "./dying.js";
 import { mapPenalty } from "./strike.js";
 import type { SeededRng } from "./rng.js";
 
@@ -31,7 +41,7 @@ export function canCastSpell(
   if (dist > spell.rangeCells) return false;
   if (spell.kind !== "heal" && !hasLineOfSight(mem.grid, caster.pos, target.pos)) return false;
   if (spell.kind === "heal" && target.side !== caster.side) return false;
-  if (spell.kind !== "heal" && (target.side === caster.side || target.downed)) return false;
+  if (spell.kind !== "heal" && (target.side === caster.side || isDead(target))) return false;
   if (spell.kind === "heal" && target.hp >= target.maxHp && !target.downed) return false;
   if (
     spell.skipIfSaveBonusGte != null &&
@@ -56,8 +66,8 @@ export function estimateSpellScore(
   }
   if (spell.kind === "attack" && spell.attackBonus != null) {
     let ac = target.ac;
-    if (hasCover(mem.grid, target.pos)) ac += 2;
-    const mod = spell.attackBonus + mapPenalty(caster.map);
+    if (hasCoverFromAttack(mem.grid, caster.pos, target.pos)) ac += 2;
+    const mod = spell.attackBonus + mapPenalty(caster.map, false);
     const need = ac - mod;
     if (need <= 1) return 0.9;
     if (need >= 20) return 0.1;
@@ -95,14 +105,48 @@ export function resolveSpell(
     caster.spellUses.set(spell.id, (caster.spellUses.get(spell.id) ?? 0) + 1);
   }
 
+  // Area spells: paint lasting terrain (Grease → 2×2 G) and resolve vs all in the area.
+  const areaSpell: Spell = {
+    ...spell,
+    areaSquareCells:
+      spell.areaSquareCells ??
+      (spell.leaveTerrain && spell.blastRadius == null ? 2 : spell.areaSquareCells),
+  };
+  const areaCells =
+    spellHasAoe(areaSpell) || spell.leaveTerrain
+      ? aoeCellsForSpell(mem, areaSpell, target.pos)
+      : [];
+
+  if (spell.leaveTerrain && areaCells.length > 0) {
+    const effect = applyTimedTerrain(mem, {
+      spell,
+      casterId: caster.id,
+      cells: areaCells,
+      round,
+    });
+    if (effect) {
+      mem.events.push({
+        t: "terrain",
+        round,
+        actor: caster.id,
+        spell: spell.id,
+        spellName: spell.name,
+        tag: effect.tag,
+        glyph: effect.glyph,
+        cells: effect.cells,
+        durationRounds: effect.durationRounds,
+        expiresAtEndOfRound: effect.expiresAtEndOfRound,
+        effectId: effect.id,
+      });
+    }
+  }
+
   if (spell.kind === "heal") {
     const dice = spell.healDice ?? 1;
     const die = spell.healDie ?? 8;
     const bonus = spell.healBonus ?? 0;
     const roll = rollDamage(rng, dice, die, bonus, false);
-    const before = target.hp;
-    target.hp = Math.min(target.maxHp, target.hp + roll.total);
-    if (target.hp > 0) target.downed = false;
+    const healAmt = applyHealing(target, roll.total);
     mem.events.push({
       t: "spell",
       round,
@@ -115,7 +159,7 @@ export function resolveSpell(
       diceRolls: roll.rolls,
       damageBonus: roll.bonus,
       dmg: 0,
-      healAmt: target.hp - before,
+      healAmt,
       hpAfter: target.hp,
       actionsSpent: spell.actions,
       map: caster.map,
@@ -126,9 +170,9 @@ export function resolveSpell(
 
   if (spell.kind === "attack") {
     let ac = target.ac;
-    if (hasCover(mem.grid, target.pos)) ac += 2;
+    if (hasCoverFromAttack(mem.grid, caster.pos, target.pos)) ac += 2;
     const d20 = rng.d20();
-    const mod = (spell.attackBonus ?? 0) + mapPenalty(caster.map);
+    const mod = (spell.attackBonus ?? 0) + mapPenalty(caster.map, false);
     const total = d20 + mod;
     const crit = d20 === 20 || total >= ac + 10;
     const hit = crit || total >= ac;
@@ -142,12 +186,8 @@ export function resolveSpell(
       damageExpr = roll.expr;
       diceRolls = roll.rolls;
       damageBonus = roll.bonus;
-      target.hp = Math.max(0, target.hp - dmg);
       target.conditions = target.conditions.filter((c) => c.name !== "asleep");
-      if (target.hp <= 0) {
-        target.downed = true;
-        target.hp = 0;
-      }
+      applyIncomingDamage(target, dmg, { critical: crit });
     }
     mem.events.push({
       t: "spell",
@@ -176,61 +216,150 @@ export function resolveSpell(
     return;
   }
 
-  // save
+  // save — single target, or every valid foe in the AoE
+  const foeSide = caster.side === "party" ? "enemy" : "party";
+  const aoeTargets =
+    areaCells.length > 0 && (spellHasAoe(spell) || !!spell.leaveTerrain)
+      ? (() => {
+          const inArea = combatantsInAoe(mem, areaCells, { side: foeSide });
+          // Always include the chosen target if still valid.
+          if (!inArea.some((c) => c.id === target.id) && target.side === foeSide && !isDead(target)) {
+            inArea.unshift(target);
+          }
+          // Stable order: chosen target first, then by id.
+          return inArea.sort((a, b) => {
+            if (a.id === target.id) return -1;
+            if (b.id === target.id) return 1;
+            return a.id.localeCompare(b.id);
+          });
+        })()
+      : [target];
+
   const dc = spell.saveDc ?? 15;
-  const saveRoll = rng.d20();
-  const saveTotal = saveRoll + target.saveBonus;
-  const saved = saveTotal >= dc;
-  let dmg = 0;
-  let damageExpr = "";
-  let diceRolls: number[] = [];
-  let damageBonus = 0;
-  if (spell.damageDice && spell.damageDie) {
-    const roll = rollDamage(rng, spell.damageDice, spell.damageDie, spell.damageBonus ?? 0, false);
-    damageExpr = roll.expr;
-    diceRolls = roll.rolls;
-    damageBonus = roll.bonus;
-    dmg = saved && spell.halfOnSave !== false ? Math.floor(roll.total / 2) : roll.total;
-    if (!saved || spell.halfOnSave !== false) {
-      target.hp = Math.max(0, target.hp - dmg);
-      if (dmg > 0) target.conditions = target.conditions.filter((c) => c.name !== "asleep");
-      if (target.hp <= 0) {
-        target.downed = true;
-        target.hp = 0;
+  let first = true;
+  for (const tgt of aoeTargets) {
+    if (
+      spell.skipIfSaveBonusGte != null &&
+      tgt.saveBonus >= spell.skipIfSaveBonusGte
+    ) {
+      continue;
+    }
+    const saveRoll = rng.d20();
+    const saveTotal = saveRoll + tgt.saveBonus;
+    const saved = saveTotal >= dc;
+    let dmg = 0;
+    let damageExpr = "";
+    let diceRolls: number[] = [];
+    let damageBonus = 0;
+    if (spell.damageDice && spell.damageDie) {
+      const roll = rollDamage(
+        rng,
+        spell.damageDice,
+        spell.damageDie,
+        spell.damageBonus ?? 0,
+        false,
+      );
+      damageExpr = roll.expr;
+      diceRolls = roll.rolls;
+      damageBonus = roll.bonus;
+      dmg = saved && spell.halfOnSave !== false ? Math.floor(roll.total / 2) : roll.total;
+      if (!saved || spell.halfOnSave !== false) {
+        if (dmg > 0) tgt.conditions = tgt.conditions.filter((c) => c.name !== "asleep");
+        applyIncomingDamage(tgt, dmg, { critical: false });
       }
     }
-  }
-  let applied: string | undefined;
-  if (!saved && spell.applyCondition) {
-    const name = spell.applyCondition;
-    if (!target.conditions.some((c) => c.name === name)) {
-      target.conditions.push({ id: name, name });
+    let applied: string | undefined;
+    if (!saved && spell.applyCondition) {
+      const name = spell.applyCondition;
+      if (!tgt.conditions.some((c) => c.name === name)) {
+        tgt.conditions.push({ id: name, name });
+      }
+      applied = name;
     }
-    applied = name;
+    mem.events.push({
+      t: "spell",
+      round,
+      actor: caster.id,
+      target: tgt.id,
+      spell: spell.id,
+      spellName: spell.name,
+      kind: "save",
+      saveRoll,
+      saveBonus: tgt.saveBonus,
+      saveTotal,
+      saveDc: dc,
+      saved,
+      damageExpr,
+      diceRolls,
+      damageBonus,
+      dmg,
+      hpAfter: tgt.hp,
+      actionsSpent: first ? spell.actions : 0,
+      map: caster.map,
+      appliedCondition: applied,
+    });
+    first = false;
   }
-  mem.events.push({
-    t: "spell",
-    round,
-    actor: caster.id,
-    target: target.id,
-    spell: spell.id,
-    spellName: spell.name,
-    kind: "save",
-    saveRoll,
-    saveBonus: target.saveBonus,
-    saveTotal,
-    saveDc: dc,
-    saved,
-    damageExpr,
-    diceRolls,
-    damageBonus,
-    dmg,
-    hpAfter: target.hp,
-    actionsSpent: spell.actions,
-    map: caster.map,
-    appliedCondition: applied,
-  });
   caster.actionsLeft -= spell.actions;
+}
+
+export function formatTerrainLine(
+  e: Extract<CombatMemory["events"][number], { t: "terrain" }>,
+): string {
+  const cells = e.cells.join(" ");
+  const dur =
+    e.durationRounds <= 0
+      ? "until combat end"
+      : `${e.durationRounds} round(s) (through r${e.expiresAtEndOfRound})`;
+  const note = narrativeTerrainCreated({
+    id: e.effectId,
+    spellId: e.spell,
+    spellName: e.spellName,
+    tag: e.tag,
+    glyph: e.glyph,
+    cells: e.cells,
+    createdRound: e.round,
+    durationRounds: e.durationRounds,
+    expiresAtEndOfRound: e.expiresAtEndOfRound,
+    casterId: e.actor,
+  });
+  return (
+    `  ${e.spellName} paints ${e.glyph} (${e.tag}) on ${e.cells.length} cell(s): ${cells} — ${dur}\n` +
+    `  Narrative note: ${note}`
+  );
+}
+
+export function formatTerrainExpireLine(
+  e: Extract<CombatMemory["events"][number], { t: "terrain_expire" }>,
+): string {
+  return (
+    `  EXPIRE ${e.spellName} ${e.glyph} (${e.tag}): ${e.cells.join(" ")}\n` +
+    `  Narrative note: ${e.spellName} dissipates at the final round of the spell.`
+  );
+}
+
+/** Remaining-duration note for an active effect id (for turn logs). */
+export function formatTerrainRemaining(
+  mem: CombatMemory,
+  effectId: string,
+): string | null {
+  const effect = mem.activeTerrain.find((t) => t.id === effectId);
+  if (!effect) return null;
+  const rem = remainingTerrainRounds(effect, mem.round);
+  if (rem == null) return `${effect.spellName} terrain: until combat end`;
+  return `${effect.spellName} terrain: ${rem} round(s) left`;
+}
+
+/** Compact legend note for ASCII boards. */
+export function formatAoeAreaNote(spell: Spell, cells: { x: number; y: number }[]): string {
+  if (!cells.length) return "";
+  const shape =
+    spell.areaSquareCells != null
+      ? `${spell.areaSquareCells}×${spell.areaSquareCells} square`
+      : spell.blastRadius != null
+        ? `burst r=${spell.blastRadius}`
+        : "area";
+  return `${spell.name} ${shape}: ${formatCellsCompact(cells)}`;
 }
 
 export function formatSpellLine(

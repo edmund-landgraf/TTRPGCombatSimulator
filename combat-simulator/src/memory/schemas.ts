@@ -53,8 +53,53 @@ export const WeaponSchema = z.object({
   damageBonus: z.number().default(0),
   rangeCells: z.number().int().positive().optional(),
   reach: z.number().int().positive().default(1),
+  /** Agile trait → MAP −4 / −8 instead of −5 / −10. */
+  agile: z.boolean().optional(),
 });
 export type Weapon = z.infer<typeof WeaponSchema>;
+
+/** Terrain tags on a map cell.
+ * - wall_h / wall_v: oriented solid walls (block move + LOS); brush toggles H ↔ V
+ * - barricade: soft cover marker "B" (walkable, shoot-over; PF2e standard cover)
+ * - grease: spell-created slick (glyph G); counts as difficult for pathing
+ */
+export const MapTerrainTagSchema = z.enum([
+  "floor",
+  "difficult",
+  "cover",
+  "blocking",
+  "hazardous",
+  "wall_h",
+  "wall_v",
+  "barricade",
+  "grease",
+]);
+export type MapTerrainTag = z.infer<typeof MapTerrainTagSchema>;
+
+/** Default ASCII/UI glyph for spell-created terrain. */
+export function terrainGlyphFor(tag: string): string {
+  if (tag === "grease") return "G";
+  if (tag === "barricade") return "B";
+  if (tag === "hazardous") return "!";
+  if (tag === "difficult") return "~";
+  return "?";
+}
+
+/** Tags that cost +1 movement like difficult terrain. */
+export function isDifficultTag(tag: string): boolean {
+  return tag === "difficult" || tag === "grease";
+}
+
+export function tagsAreDifficult(tags: readonly string[]): boolean {
+  return tags.some((t) => isDifficultTag(t));
+}
+
+export const MapCellSchema = z.object({
+  x: z.number().int().positive(),
+  y: z.number().int().positive(),
+  tags: z.array(MapTerrainTagSchema).default(["floor"]),
+});
+export type MapCell = z.infer<typeof MapCellSchema>;
 
 export const SpellSchema = z.object({
   id: z.string(),
@@ -83,10 +128,33 @@ export const SpellSchema = z.object({
   skipIfSaveBonusGte: z.number().int().optional(),
   /** On failed save (or always if no save), apply this condition name. */
   applyCondition: z.string().optional(),
-  /** Optional blast radius in cells for offense tips / multi-target scoring. */
+  /**
+   * Burst radius in cells (Chebyshev) for spherical AoE — e.g. Fireball radius 2.
+   * Affects all valid creatures in range; used for multi-target scoring.
+   */
   blastRadius: z.number().int().nonnegative().optional(),
+  /**
+   * Axis-aligned square AoE size in cells (2 = 10 ft × 10 ft / 2×2).
+   * Grease uses this with leaveTerrain: "grease".
+   */
+  areaSquareCells: z.number().int().positive().optional(),
+  /**
+   * Terrain tag painted onto every walkable AoE cell when cast
+   * (e.g. "grease" → map shows G and counts as difficult).
+   */
+  leaveTerrain: MapTerrainTagSchema.optional(),
+  /** Optional map glyph override for leaveTerrain (default: grease→G). */
+  terrainGlyph: z.string().min(1).max(1).optional(),
+  /**
+   * How many rounds painted terrain lasts (inclusive of cast round).
+   * Default when leaveTerrain is set: 10 (≈1 minute). Omit / 0 = until combat end.
+   */
+  terrainDurationRounds: z.number().int().nonnegative().optional(),
 });
 export type Spell = z.infer<typeof SpellSchema>;
+
+/** Default duration for spell-created terrain when unspecified (PF2e Grease ≈ 1 min). */
+export const DEFAULT_TERRAIN_DURATION_ROUNDS = 10;
 
 export const CombatantFixtureSchema = z.object({
   id: z.string(),
@@ -96,12 +164,22 @@ export const CombatantFixtureSchema = z.object({
   tokenChar: z.string().length(1),
   /** Creature/PC level for spell-rank gating (default 1). */
   level: z.number().int().default(1),
+  /** Class / creature id for packet composition (derived from role if omitted). */
+  classId: z.string().optional(),
+  /** Dedication / monster-family archetype tags. */
+  archetypes: z.array(z.string()).default([]),
+  /** Combat capability tags (feats / class features) for overlays + deeper search. */
+  capabilities: z.array(z.string()).default([]),
   maxHp: z.number().int().positive(),
   ac: z.number().int(),
   speedCells: z.number().int().positive(),
   perceptionBonus: z.number().default(0),
   /** Used for spell saves when targeted (default 3). */
   saveBonus: z.number().default(3),
+  /** Shield Block hardness (0 = no shield). */
+  shieldHardness: z.number().int().nonnegative().default(0),
+  /** Shield HP / Hit Points for Shield Block. */
+  shieldHp: z.number().int().nonnegative().default(0),
   start: PositionSchema,
   weapons: z.array(WeaponSchema).min(1),
   spells: z.array(SpellSchema).default([]),
@@ -113,12 +191,17 @@ export const CombatantFixtureSchema = z.object({
 });
 export type CombatantFixture = z.infer<typeof CombatantFixtureSchema>;
 
-export const MapCellSchema = z.object({
-  x: z.number().int().positive(),
-  y: z.number().int().positive(),
-  tags: z.array(z.enum(["floor", "difficult", "cover", "blocking"])).default(["floor"]),
-});
-export type MapCell = z.infer<typeof MapCellSchema>;
+/** Solid geometry: full walls and oriented wall segments. */
+export function isBlockingTags(tags: readonly string[]): boolean {
+  return (
+    tags.includes("blocking") || tags.includes("wall_h") || tags.includes("wall_v")
+  );
+}
+
+/** Soft/standard cover terrain you can occupy (cover rail or barricade). */
+export function isCoverTags(tags: readonly string[]): boolean {
+  return tags.includes("cover") || tags.includes("barricade");
+}
 
 export const EncounterFixtureSchema = z.object({
   id: z.string(),

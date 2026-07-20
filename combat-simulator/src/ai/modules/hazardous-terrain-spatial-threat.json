@@ -1,0 +1,83 @@
+{
+  "moduleName": "Hazardous Terrain & Spatial Threat Matrix",
+  "tacticalArchetype": "Pathing Optimization & Flanking Avoidance",
+  "terrainDirectives": {
+    "pathingCostAnalysis": [
+      {
+        "terrainType": "Difficult Terrain / Rubble / Undergrowth",
+        "rule": "Every square costs 2 squares of movement (10 feet per square).",
+        "agentLogic": {
+          "condition": "Target is on the other side of difficult terrain",
+          "evaluation": "Calculate if (StrideDistance / 2) >= DistanceToTarget. If False, do NOT Stride twice. Instead, use a Ranged Attack, Ready an action, or force the enemy to cross it.",
+          "exception": "Agent possesses Feats/Abilities that ignore difficult terrain (e.g., Woodland Stride, Nimble Elf)."
+        }
+      },
+      {
+        "terrainType": "Hazardous Terrain / Acid Pools / Wall of Fire",
+        "rule": "Entering or ending a turn in the square inflicts immediate static/persistent damage.",
+        "agentLogic": {
+          "condition": "Optimal path intersects Hazardous Terrain",
+          "action": "Recalculate route. Absolute veto on crossing unless (TotalDamageIntersections < AgentRemainingHP) AND (DestinationResult == Immediate Enemy Kill).",
+          "forcedMovementMitigation": "If an enemy has Shove/Reposition abilities, maximize distance from hazardous edges."
+        }
+      }
+    ]
+  },
+  "flankingEvasionDirectives": {
+    "threatZoneEvaluation": [
+      {
+        "situation": "Vulnerable Position (Enemy Is Flanking Me)",
+        "condition": "Two or more enemies are positioned on directly opposite sides/corners of the agent, making the agent Off-Guard (-2 AC).",
+        "priority": "CRITICAL OVERRIDE. Activating this flag supersedes any offensive actions.",
+        "mitigationOptions": [
+          {
+            "priority": 1,
+            "action": "Step",
+            "cost": 1,
+            "condition": "Adjacent square is safe and empty",
+            "reasoning": "Breaks the flanking line instantly without triggering Reactive Strikes. Restores +2 AC immediately."
+          },
+          {
+            "priority": 2,
+            "action": "Tumble Through",
+            "cost": 1,
+            "skill": "Acrobatics vs. Enemy Reflex DC",
+            "condition": "Completely surrounded or blocked by enemies/walls",
+            "reasoning": "Allows the agent to move directly through an enemy's square to escape the pincer formation."
+          }
+        ]
+      },
+      {
+        "situation": "Preventative Anti-Flanking Positioning",
+        "condition": "Agent is ending its turn in melee range of multiple mobile enemies.",
+        "preventativeActions": [
+          {
+            "action": "Anchor to Wall/Corner",
+            "cost": 1,
+            "description": "Stride/Step so the agent's back or side is flush against solid, impassable geometry.",
+            "reasoning": "Mathematically prevents enemies from positioning themselves on directly opposite sides, making it physically impossible for them to establish a flank."
+          }
+        ]
+      }
+    ]
+  },
+  "chokepointDirectives": {
+    "bottleneckLogic": [
+      {
+        "condition": "Battlefield features a 5-to-10 foot wide doorway, hallway, or bridge",
+        "partyRoleStance": {
+          "Tank_Champion_Fighter": {
+            "action": "Hold the Line",
+            "description": "Stand exactly in the bottleneck center. Use Raise a Shield or Take Cover.",
+            "reasoning": "Maximizes defensive status while body-blocking enemy progression. Forces enemies to target high-AC assets."
+          },
+          "Squishy_Caster_Ranged": {
+            "action": "Deep Retreat",
+            "description": "Maintain a minimum distance of 20 feet behind the frontliner blocking the chokepoint.",
+            "reasoning": "Creates absolute safety from melee rushers and forces enemies into high-density clusters perfect for AoE (Area of Effect) reflex spells like Fireball."
+          }
+        }
+      }
+    ]
+  }
+}

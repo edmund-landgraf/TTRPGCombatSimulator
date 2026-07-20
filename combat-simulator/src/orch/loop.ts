@@ -7,6 +7,7 @@ import { runTurn } from "./turn.js";
 import { formatRoundEnd, formatRoundSummary, formatStatusRoster } from "./roundOutput.js";
 import { applyDirectorNotes } from "./directorInbox.js";
 import { renderAscii } from "../map/ascii.js";
+import { tickTerrainDurations } from "../map/aoe.js";
 import { saveRun, saveTacticsLog, type TacticsLogPaths } from "../runs/save.js";
 import type { LlmProvider } from "../llm/types.js";
 import { narrateRound } from "../llm/narrate.js";
@@ -217,6 +218,14 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
     const forfeitLines: string[] = [];
     forfeitExpiredDelays(mem, forfeitLines);
     pushLines(forfeitLines);
+
+    const terrainExpireLines = tickTerrainDurations(mem);
+    if (terrainExpireLines.length) {
+      pushLines(terrainExpireLines);
+      if (opts.play) {
+        for (const line of terrainExpireLines) console.log(line);
+      }
+    }
 
     mem.events.push({ t: "round_end", round });
     const roundEnd = formatRoundEnd(mem);

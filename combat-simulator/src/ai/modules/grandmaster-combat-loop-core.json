@@ -1,0 +1,155 @@
+{
+  "schemaName": "Pathfinder 2e Grandmaster Combat Loop Core Schema",
+  "version": "1.0.0",
+  "systemIntent": "Maximize action economy party utility, manipulate math modifiers (+1/-1), and minimize enemy actions via predictive tactical state modeling.",
+  "combatLoopSequence": [
+    "Step 1: Environmental & Status Assessment (Pre-Action Phase)",
+    "Step 2: Spatiotemporal Positioning Calibration (Movement Phase)",
+    "Step 3: Tactical Target & Saving Throw Selection (Analysis Phase)",
+    "Step 4: Action Packet Execution (Execution Phase)",
+    "Step 5: End of Turn Optimization (Mitigation Phase)",
+    "Step 6: Off-Turn Response Pre-Computation (Reaction Phase)"
+  ],
+  "step1_StatusAssessment": {
+    "priority": 1,
+    "description": "Scan character state for immediate life-threatening or accuracy-reducing conditions before choosing offensive options.",
+    "directives": [
+      {
+        "condition": "Has Persistent Damage (Burning, Bleeding, Acid) AND CurrentHP <= (PersistentDamageValue * 2)",
+        "overrideAction": "Spend 2 actions on Assisted Recovery / First Aid",
+        "systemMath": "Lowers end-of-turn Flat Check from DC 15 to DC 10",
+        "reasoning": "Critical life threat. Attacking while near death from ongoing damage is mathematically a failure state."
+      },
+      {
+        "condition": "Frightened >= 2 OR Sickened >= 2",
+        "overrideAction": "Prioritize clearing condition (Retch for Sickened) or pivot to defensive/buff actions",
+        "reasoning": "A status penalty of -2 or worse heavily tanks accuracy. Do not waste high-value attacks or slotted spell slots during peak penalties."
+      }
+    ]
+  },
+  "step2_SpatiotemporalPositioning": {
+    "priority": 2,
+    "description": "Evaluate the 2D grid coordinates, hazard profiles, and tactical placement relative to enemies.",
+    "directives": {
+      "flankingEvasion": [
+        {
+          "condition": "Enemies are on opposite sides/corners (Agent is Off-Guard, -2 AC penalty)",
+          "priorityAction": "Step 5 feet to an empty, safe adjacent square",
+          "reasoning": "Breaks the flanking line instantly. Restores +2 AC without triggering Reactive Strikes (AoO)."
+        },
+        {
+          "condition": "Completely surrounded, blocked by walls, or pinned in a pincer",
+          "priorityAction": "Tumble Through (Acrobatics vs. Enemy Reflex DC)",
+          "reasoning": "Enables movement directly through an enemy space to escape a lethal bottleneck."
+        }
+      ],
+      "hazardAndTerrainAvoidance": [
+        {
+          "condition": "Path intersects Difficult Terrain (Rubble/Briars)",
+          "rule": "Every square costs double movement (10 feet per square)",
+          "logic": "If (StrideDistance / 2) < DistanceToTarget, abort melee progression. Pivot to a ranged weapon, cast a spell, or ready an action."
+        },
+        {
+          "condition": "Path intersects Hazardous Terrain (Acid/Fire Walls)",
+          "logic": "Absolute pathing veto unless crossing guarantees an immediate enemy kill AND remaining HP exceeds the hazard damage."
+        }
+      ]
+    }
+  },
+  "step3_TacticalTargetSelection": {
+    "priority": 3,
+    "description": "Identify the enemy defense profile to maximize spell and skill success rates.",
+    "arbitrageRules": [
+      {
+        "targetArchetype": "Brutes / Monsters / Low-Agility Foes",
+        "weakestDefense": "Reflex Save",
+        "recommendedActions": ["Trip", "Reflex-targeting spells (e.g., Fireball)"]
+      },
+      {
+        "targetArchetype": "Spellcasters / Squishy Ranged Targets",
+        "weakestDefense": "Fortitude Save / Low AC",
+        "recommendedActions": ["Grapple", "Fortitude-targeting spells (e.g., Blindness)"]
+      },
+      {
+        "targetArchetype": "Animals / Mindless / Berserkers",
+        "weakestDefense": "Will Save",
+        "recommendedActions": ["Demoralize", "Bon Mot", "Will-targeting mental spells (e.g., Fear)"]
+      }
+    ]
+  },
+  "step4_ActionPacketExecution": {
+    "priority": 4,
+    "description": "Compose role packets + feat/archetype overlays, then level-band search to lock a 3-action budget. Never make a 3rd strike under normal MAP.",
+    "composition": {
+      "rolePacketsModule": "role-action-packets.json",
+      "overlaysModule": "feat-archetype-overlays.json",
+      "levelBandModule": "level-band-reasoning.json",
+      "notes": [
+        "Resolve classId/archetypes/capabilities → role packet + overlays.",
+        "L1–2: single primary packet. L3–6: top-K=3. L7+: beam-expand top-K=5.",
+        "Capability count ≥4 bumps search band one step."
+      ]
+    },
+    "classMatrices": {
+      "Fighter": {
+        "archetype": "Critical Fisher",
+        "action1": { "name": "Trip or Stride to Flank", "intent": "Inflict Off-Guard (-2 Enemy AC)" },
+        "action2": { "name": "Strike", "intent": "Maximize accuracy at 0 MAP to fish for a +10 Critical Success" },
+        "action3": { "name": "Press Strike or Raise a Shield", "intent": "Apply iterative pressure or secure defense" }
+      },
+      "Bard": {
+        "archetype": "Math Maximizer",
+        "action1": { "name": "Courageous Anthem / Inspire Courage", "intent": "Mandatory +1 global party attack/damage status buff" },
+        "action2_3": { "name": "Cast 2-Action Slotted Spell or Bon Mot + Cantrip", "intent": "Control battlefield or drop enemy saving throws" }
+      },
+      "Monk": {
+        "archetype": "Action Denier Skirmisher",
+        "action1": { "name": "Flurry of Blows", "intent": "Compress two attacks into a single action costing 0 and -5 MAP" },
+        "action2_3": { "name": "Stride / Step away", "intent": "Move completely out of melee reach, forcing enemies to waste actions chasing" }
+      },
+      "Wizard": {
+        "archetype": "Save Arbitrageur",
+        "action1": { "name": "Recall Knowledge", "intent": "Identify target's lowest saving throw DC" },
+        "action2_3": { "name": "Cast 2-Action Spell", "intent": "Target the identified weak save (Fortitude, Reflex, or Will)" }
+      }
+    }
+  },
+  "step5_EndOfTurnMitigation": {
+    "priority": 5,
+    "description": "Spend the final remaining action of a turn maximizing defensive layers rather than making low-probability attacks.",
+    "options": [
+      {
+        "condition": "Melee character ending turn adjacent to mobile threats",
+        "action": "Anchor to Wall/Corner",
+        "reasoning": "Moving flush against impassable geometry makes it physically impossible for enemies to establish a flank."
+      },
+      {
+        "condition": "Ending turn within line of sight of ranged enemies",
+        "action": "Take Cover",
+        "reasoning": "Secures a +2 circumstance bonus (Standard Cover) or a massive +4 bonus (Greater Cover) to AC."
+      },
+      {
+        "condition": "Shield equipped and action remains",
+        "action": "Raise a Shield",
+        "reasoning": "Adds a +2 circumstance bonus to AC and unlocks the Shield Block reaction trigger."
+      }
+    ]
+  },
+  "step6_OffTurnReactionPreComputation": {
+    "priority": 6,
+    "description": "Pre-calculate specific reaction triggers to process instantaneously during the enemy's initiative turn.",
+    "triggers": [
+      {
+        "name": "Reactive Strike (AoO)",
+        "triggerCondition": "Adjacent enemy utilizes a Move action, Manipulate action, or Ranged Attack",
+        "execution": "Strike immediately at 0 MAP. Interrupts manipulate actions on a critical hit."
+      },
+      {
+        "name": "Shield Block",
+        "triggerCondition": "Taking physical damage while shield is raised",
+        "execution": "Trigger only if remaining damage after Shield Hardness prevents falling unconscious or entering the Dying state. Save shield durability against weak minion hits."
+      }
+    ],
+    "simStatus": "planned"
+  }
+}

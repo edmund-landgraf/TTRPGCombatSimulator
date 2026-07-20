@@ -25,6 +25,7 @@ const els = {
   setupMap: $("setupMap"),
   setupLegend: $("setupLegend"),
   setupMapHint: $("setupMapHint"),
+  mapToolbox: $("mapToolbox"),
   roundStage: $("roundStage"),
   shell: document.querySelector(".shell"),
   pcsList: $("pcsList"),
@@ -51,6 +52,12 @@ const els = {
   loopMeta: $("loopMeta"),
   loopProgress: $("loopProgress"),
   loopReportFrame: $("loopReportFrame"),
+  loopBriefing: $("loopBriefing"),
+  loopBriefingHeadline: $("loopBriefingHeadline"),
+  loopBriefingHow: $("loopBriefingHow"),
+  loopBriefingBest: $("loopBriefingBest"),
+  loopBriefingWorst: $("loopBriefingWorst"),
+  loopBriefingAdvice: $("loopBriefingAdvice"),
   loopParams: $("loopParams"),
   loopSeedCount: $("loopSeedCount"),
   loopBaseSeed: $("loopBaseSeed"),
@@ -196,12 +203,15 @@ const expandedRunContainers = new Set();
 let lastPhase = null;
 let lastLoopPhase = null;
 
+const MAIN_TABS = new Set(["setup", "combat", "logs", "loop"]);
+
 function showTab(name) {
-  const tab = name || "setup";
-  document.querySelectorAll(".tab").forEach((t) => {
+  const tab = MAIN_TABS.has(name) ? name : "setup";
+  document.querySelectorAll(".tab[data-tab]").forEach((t) => {
     t.classList.toggle("active", t.dataset.tab === tab);
   });
-  document.querySelectorAll(".view").forEach((v) => {
+  // Only swap main views — chat dock stays visible with live context.
+  document.querySelectorAll(".main-views > .view").forEach((v) => {
     const on = v.id === `view-${tab}`;
     v.classList.toggle("active", on);
     if (on) v.removeAttribute("hidden");
@@ -224,6 +234,7 @@ document.querySelectorAll(".tab[data-tab]").forEach((btn) => {
     }
     if (btn.dataset.tab === "loop") {
       refreshLoopStatus();
+      refreshLoopBriefing().catch(() => {});
       if (els.loopReportFrame) {
         els.loopReportFrame.src = `/api/loop/report.html?t=${Date.now()}`;
       }
@@ -413,25 +424,74 @@ function renderStudio(studio, mapImage, opts = {}) {
   if (studio.lastError) els.setupMsg.textContent = studio.lastError;
 
   const hasTokens = (studio.board?.tokens?.length || 0) > 0;
+  const hasMap = !!(studio.board?.width);
   const canEditSetup = !opts.lockTokens && hasTokens;
+  const canPaint = !opts.lockTokens && hasMap && !opts.disablePaint;
   renderLegend(els.setupLegend, studio.board);
+  syncBrushToolbar(canPaint);
   if (els.setupMapHint) {
-    els.setupMapHint.textContent = canEditSetup
-      ? opts.allowDeployEdit
+    const brush = activeBrush();
+    if (opts.lockTokens) {
+      els.setupMapHint.textContent =
+        "Combat is live — drag tokens on the Combat map while paused (deploy, between turns, or between rounds).";
+    } else if (brush === "wall") {
+      els.setupMapHint.textContent =
+        "Wall brush — click: horizontal → vertical → clear. Blocks movement and LOS.";
+    } else if (brush === "barricade") {
+      els.setupMapHint.textContent =
+        "Barricade brush — click to place B (soft cover, shoot over). B B B ≈ 15 ft. Click again to clear.";
+    } else if (canEditSetup) {
+      els.setupMapHint.textContent = opts.allowDeployEdit
         ? "Deploy — drag tokens here or on the Combat tab, then Start Round 1."
-        : "Drag tokens to place them (enemies north / party south by default)."
-      : opts.lockTokens
-        ? "Combat is live — drag tokens on the Combat map while paused (deploy, between turns, or between rounds)."
+        : "Drag tokens to place them (enemies north / party south by default). Use Objects to paint walls/barricades.";
+    } else {
+      els.setupMapHint.textContent = hasMap
+        ? "Paint walls/barricades with Objects, or load combatants to drag tokens."
         : "Load sample or import combatants — then drag tokens on the grid.";
+    }
   }
   renderBoardInto(els.setupMap, studio.board, {
     editable: canEditSetup,
+    paintable: canPaint,
     endpoint: opts.moveEndpoint || "/api/studio/move-token",
     onMoved:
       opts.onMoved ||
       (async () => {
         await refreshStudio();
       }),
+  });
+}
+
+/** Selected Setup object brush: "" | "wall" | "barricade" */
+let setupBrush = "";
+
+function activeBrush() {
+  return setupBrush === "wall" || setupBrush === "barricade" ? setupBrush : "";
+}
+
+function syncBrushToolbar(enabled) {
+  const bar = els.mapToolbox;
+  if (!bar) return;
+  bar.hidden = false;
+  bar.classList.toggle("disabled", !enabled);
+  for (const btn of bar.querySelectorAll(".brush-btn")) {
+    btn.disabled = !enabled;
+    const b = btn.dataset.brush || "";
+    btn.classList.toggle("active", (setupBrush || "") === b);
+  }
+}
+
+function bindMapToolbox() {
+  const bar = els.mapToolbox;
+  if (!bar || bar.dataset.bound === "1") return;
+  bar.dataset.bound = "1";
+  bar.addEventListener("click", (ev) => {
+    const btn = ev.target?.closest?.(".brush-btn");
+    if (!btn || btn.disabled) return;
+    setupBrush = btn.dataset.brush || "";
+    syncBrushToolbar(true);
+    // Refresh hint + paint cursor class
+    refreshStudio().catch(() => {});
   });
 }
 
@@ -443,8 +503,13 @@ function setCombatFocus(on) {
 
 function cellTerrainClass(tags) {
   if (!tags?.length) return "cell-floor";
+  if (tags.includes("wall_h")) return "cell-wall-h";
+  if (tags.includes("wall_v")) return "cell-wall-v";
   if (tags.includes("blocking")) return "cell-blocking";
+  if (tags.includes("grease")) return "cell-grease";
+  if (tags.includes("barricade")) return "cell-barricade";
   if (tags.includes("cover")) return "cell-cover";
+  if (tags.includes("hazardous")) return "cell-hazardous";
   if (tags.includes("difficult")) return "cell-difficult";
   return "cell-floor";
 }
@@ -455,13 +520,22 @@ function boardFingerprint(board) {
     .map((t) => `${t.id}:${t.x},${t.y},${t.downed ? 1 : 0}`)
     .sort()
     .join(";");
-  return `${board.width}x${board.height}|${toks}`;
+  const terrain = (board.cells || [])
+    .map((c) => `${c.x},${c.y}:${(c.tags || []).join("+")}`)
+    .sort()
+    .join(";");
+  return `${board.width}x${board.height}|${toks}|${terrain}`;
 }
 
 const TERRAIN_LEGEND = [
   { cls: "cell-floor", label: "floor" },
   { cls: "cell-difficult", label: "difficult" },
+  { cls: "cell-grease", label: "grease (G)" },
+  { cls: "cell-hazardous", label: "hazardous" },
   { cls: "cell-cover", label: "cover" },
+  { cls: "cell-barricade", label: "barricade (B)" },
+  { cls: "cell-wall-h", label: "wall —" },
+  { cls: "cell-wall-v", label: "wall |" },
   { cls: "cell-blocking", label: "wall" },
   { cls: "token party", label: "party" },
   { cls: "token enemy", label: "enemy" },
@@ -504,28 +578,41 @@ function battleMapCellsHtml(board, editable = false) {
       const terrain = cellTerrainClass(tags);
       const toks = byCell.get(key) || [];
       let inner = "";
-      if (toks.length === 1) {
+      if (toks.length === 0 && tags.includes("grease")) {
+        inner = `<span class="cell-marker grease" title="Grease (difficult)">G</span>`;
+      } else if (toks.length === 0 && tags.includes("barricade")) {
+        inner = `<span class="cell-marker barricade" title="Barricade (soft cover)">B</span>`;
+      } else if (toks.length === 1) {
         const t = toks[0];
         const drag =
           editable && !t.downed
             ? ` draggable="true" data-token-id="${escapeHtml(t.id)}"`
             : "";
-        inner = `<span class="battle-token ${t.side}${t.downed ? " downed" : ""}"${drag} title="${escapeHtml(
-          `${t.name} (${t.id})`,
+        const vital = t.vitalLabel && t.vitalState && t.vitalState !== "ok" ? ` — ${t.vitalLabel}` : "";
+        const deadCls = t.vitalState === "dead" ? " dead" : t.downed ? " downed" : "";
+        inner = `<span class="battle-token ${t.side}${deadCls}"${drag} title="${escapeHtml(
+          `${t.name} (${t.id})${vital}`,
         )}">${escapeHtml(t.tokenChar)}</span>`;
       } else if (toks.length > 1) {
         // Slash join so "b"+"a" reads "b/a" (not "ba" mistaken for one unit).
         const label = toks.map((t) => t.tokenChar).join("/");
-        const title = toks.map((t) => t.name).join(", ");
+        const title = toks
+          .map((t) =>
+            t.vitalLabel && t.vitalState && t.vitalState !== "ok"
+              ? `${t.name} (${t.vitalLabel})`
+              : t.name,
+          )
+          .join(", ");
         const side = toks.some((t) => t.side === "enemy") ? "enemy" : "party";
         const downed = toks.every((t) => t.downed) ? " downed" : "";
+        const deadCls = toks.every((t) => t.vitalState === "dead") ? " dead" : downed;
         // Stacked: drag the first living token
         const live = toks.find((t) => !t.downed);
         const drag =
           editable && live
             ? ` draggable="true" data-token-id="${escapeHtml(live.id)}"`
             : "";
-        inner = `<span class="battle-token stack ${side}${downed}"${drag} title="${escapeHtml(
+        inner = `<span class="battle-token stack ${side}${deadCls}"${drag} title="${escapeHtml(
           title,
         )}">${escapeHtml(label.slice(0, 5))}</span>`;
       }
@@ -539,7 +626,15 @@ function battleMapCellsHtml(board, editable = false) {
 
 function cellFromDragEvent(mapEl, target) {
   const el = target?.closest?.(".battle-cell");
-  if (!el || !mapEl.contains(el) || el.classList.contains("cell-blocking")) return null;
+  if (
+    !el ||
+    !mapEl.contains(el) ||
+    el.classList.contains("cell-blocking") ||
+    el.classList.contains("cell-wall-h") ||
+    el.classList.contains("cell-wall-v")
+  ) {
+    return null;
+  }
   return el;
 }
 
@@ -632,10 +727,11 @@ function renderBoardInto(mapEl, board, opts = {}) {
   if (!mapEl) return;
   mapEl._tokenMoveEndpoint = opts.endpoint;
   mapEl._tokenMoveOnMoved = opts.onMoved;
+  mapEl._paintable = !!opts.paintable;
   if (!board?.width) {
     endTokenDrag(mapEl);
     mapEl.innerHTML = "";
-    mapEl.classList.remove("editable");
+    mapEl.classList.remove("editable", "paint-mode");
     delete mapEl.dataset.fp;
     return;
   }
@@ -644,17 +740,50 @@ function renderBoardInto(mapEl, board, opts = {}) {
     return;
   }
   const editable = !!opts.editable;
-  const fp = `${boardFingerprint(board)}|e${editable ? 1 : 0}`;
+  const brush = mapEl === els.setupMap ? activeBrush() : "";
+  const fp = `${boardFingerprint(board)}|e${editable ? 1 : 0}|b${brush}|p${opts.paintable ? 1 : 0}`;
   if (mapEl.dataset.fp === fp) {
     mapEl.classList.toggle("editable", editable);
+    mapEl.classList.toggle("paint-mode", !!brush && !!opts.paintable);
     bindTokenDrag(mapEl);
+    bindCellPaint(mapEl);
     return;
   }
   mapEl.style.gridTemplateColumns = `repeat(${board.width}, var(--cell))`;
   mapEl.innerHTML = battleMapCellsHtml(board, editable);
   mapEl.dataset.fp = fp;
   mapEl.classList.toggle("editable", editable);
+  mapEl.classList.toggle("paint-mode", !!brush && !!opts.paintable);
   bindTokenDrag(mapEl);
+  bindCellPaint(mapEl);
+}
+
+/** Click-to-paint walls / barricades on the Setup map when a brush is selected. */
+function bindCellPaint(mapEl) {
+  if (!mapEl || mapEl.dataset.paintBound === "1") return;
+  mapEl.dataset.paintBound = "1";
+  mapEl.addEventListener("click", async (ev) => {
+    if (mapEl !== els.setupMap || !mapEl._paintable) return;
+    const brush = activeBrush();
+    if (!brush) return;
+    // Don't paint when the intent was dragging a token.
+    if (ev.target?.closest?.(".battle-token")) return;
+    const cell = ev.target?.closest?.(".battle-cell");
+    if (!cell || !mapEl.contains(cell)) return;
+    const x = Number(cell.dataset.x);
+    const y = Number(cell.dataset.y);
+    if (!x || !y) return;
+    try {
+      const data = await apiJson("/api/studio/paint-cell", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ x, y, brush }),
+      });
+      renderStudio(data, data.mapImage);
+    } catch (err) {
+      if (els.setupMsg) els.setupMsg.textContent = err.message || String(err);
+    }
+  });
 }
 
 /** Wrapped grid for embedding in round cards. */
@@ -806,15 +935,15 @@ function updateChatCombatState(ctx, runInFlight) {
     if (els.chatMeta) {
       els.chatMeta.textContent = runInFlight
         ? "Combat is resolving — ask again at the next pause (Enter wait)."
-        : "Ask during a combat pause (Combat waits for Enter). Knows paused vs ended. Does not change combat.";
+        : "Always on — ask about studio setup, live combat, or the latest loop briefing.";
     }
     return;
   }
   if (ctx.phase === "ended") {
-    els.chatCombatPill.textContent = "ended";
+    els.chatCombatPill.textContent = `ended · R${ctx.round}`;
     els.chatCombatPill.className = "pill ended";
     if (els.chatMeta) {
-      els.chatMeta.textContent = `Combat ended — ${ctx.endReason || "done"} (${ctx.winner || "—"}). Chat can discuss what happened; it cannot change the fight.`;
+      els.chatMeta.textContent = `Combat ended after round ${ctx.round} — ${ctx.endReason || "done"} (${ctx.winner || "—"}). Chat knows the aftermath; it cannot change the fight.`;
     }
     return;
   }
@@ -830,22 +959,74 @@ function updateChatCombatState(ctx, runInFlight) {
   if (ctx.waitingForAdvance || ctx.phase === "waiting") {
     const turnPause = ctx.pauseKind === "turn";
     els.chatCombatPill.textContent = turnPause
-      ? `turn pause · R${ctx.round}`
-      : `paused · R${ctx.round}`;
+      ? `turn pause · end R${ctx.round}`
+      : `paused · end of round ${ctx.round}`;
     els.chatCombatPill.className = "pill";
     if (els.chatMeta) {
       els.chatMeta.textContent = turnPause
-        ? `Paused after a turn in Round ${ctx.round}. Map is live — Enter for the next combatant.`
-        : `Paused after Round ${ctx.round}. Drag tokens on the map if needed, then Enter for Round ${ctx.round + 1}.`;
+        ? `You are paused after a turn in Round ${ctx.round}. Map is live — Enter for the next combatant.`
+        : `You are at the end of Round ${ctx.round}. Chat context matches this pause — Enter starts Round ${ctx.round + 1}.`;
     }
     return;
   }
-  els.chatCombatPill.textContent = runInFlight ? "resolving…" : "in combat";
+  els.chatCombatPill.textContent = runInFlight
+    ? `resolving · R${ctx.round}`
+    : `in combat · R${ctx.round}`;
   els.chatCombatPill.className = "pill muted";
   if (els.chatMeta) {
     els.chatMeta.textContent = runInFlight
       ? `Round ${ctx.round} is resolving. Best questions are at the next pause.`
-      : "Live combat context loaded. Does not change combat.";
+      : `Live combat context (around round ${ctx.round}). Does not change combat.`;
+  }
+}
+
+function fillBriefingList(ul, items, mode) {
+  if (!ul) return;
+  ul.innerHTML = "";
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    const li = document.createElement("li");
+    li.textContent = "(none)";
+    li.className = "meta";
+    ul.appendChild(li);
+    return;
+  }
+  for (const item of list) {
+    const li = document.createElement("li");
+    if (mode === "scenario" && item && typeof item === "object") {
+      const strong = document.createElement("strong");
+      strong.textContent = item.label || "scenario";
+      li.appendChild(strong);
+      li.appendChild(document.createTextNode(` — ${item.detail || ""}`));
+    } else {
+      li.textContent = typeof item === "string" ? item : String(item?.detail || item);
+    }
+    ul.appendChild(li);
+  }
+}
+
+function renderLoopBriefing(briefing) {
+  if (!els.loopBriefing) return;
+  if (!briefing) {
+    els.loopBriefing.hidden = true;
+    return;
+  }
+  els.loopBriefing.hidden = false;
+  if (els.loopBriefingHeadline) {
+    els.loopBriefingHeadline.textContent = briefing.headline || "";
+  }
+  fillBriefingList(els.loopBriefingHow, briefing.howItWent, "text");
+  fillBriefingList(els.loopBriefingBest, briefing.best, "scenario");
+  fillBriefingList(els.loopBriefingWorst, briefing.worst, "scenario");
+  fillBriefingList(els.loopBriefingAdvice, briefing.advice, "text");
+}
+
+async function refreshLoopBriefing() {
+  try {
+    const report = await apiJson("/api/loop/report");
+    renderLoopBriefing(report.briefing || null);
+  } catch {
+    renderLoopBriefing(null);
   }
 }
 
@@ -1351,9 +1532,13 @@ async function refreshLoopStatus() {
       const phase = st.progress?.phase ?? "ready";
       if (els.loopReportFrame && lastLoopPhase === "running" && phase === "done") {
         els.loopReportFrame.src = `/api/loop/report.html?t=${Date.now()}`;
+        refreshLoopBriefing().catch(() => {});
+      } else if (!els.loopBriefing || els.loopBriefing.hidden) {
+        refreshLoopBriefing().catch(() => {});
       }
       lastLoopPhase = phase === "done" ? "ready" : phase;
     } else {
+      renderLoopBriefing(null);
       els.loopPill.textContent = "idle";
       els.loopPill.className = "pill muted";
       els.startLoopBtn.disabled = false;
@@ -1454,6 +1639,7 @@ els.input.addEventListener("keydown", (e) => {
 });
 
 showTab("setup");
+bindMapToolbox();
 refresh();
 refreshStudio().catch(() => {});
 refreshRuns().catch(() => {});

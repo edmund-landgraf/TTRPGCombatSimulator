@@ -7,6 +7,7 @@ import {
   SpellSchema,
   TacticsGroupIdSchema,
   WeaponSchema,
+  isBlockingTags,
   type CombatantFixture,
   type EncounterFixture,
   type MapCell,
@@ -23,6 +24,9 @@ const ImportCombatantSchema = z.object({
   role: z.string().optional(),
   tokenChar: z.string().min(1).max(1).optional(),
   level: z.number().int().optional(),
+  classId: z.string().optional(),
+  archetypes: z.array(z.string()).optional(),
+  capabilities: z.array(z.string()).optional(),
   maxHp: z.number().int().positive(),
   ac: z.number().int(),
   speedCells: z.number().int().positive(),
@@ -250,6 +254,9 @@ export function importCombatantsJson(
       role,
       tokenChar: token.slice(0, 1),
       level: parsed.level ?? 1,
+      classId: parsed.classId ?? role.toLowerCase().replace(/\s+/g, "_"),
+      archetypes: parsed.archetypes ?? [],
+      capabilities: parsed.capabilities ?? [],
       perceptionBonus: parsed.perceptionBonus ?? 2,
       saveBonus: parsed.saveBonus ?? 3,
       // Placeholder; autoPlaceSides overwrites after import into studio.
@@ -341,8 +348,13 @@ export function formatStudioAscii(state: StudioState): string {
       }
       const cell = by.get(`${x},${y}`);
       const tags = cell?.tags ?? ["floor"];
-      if (tags.includes("blocking")) row.push("#");
+      if (tags.includes("wall_h")) row.push("─");
+      else if (tags.includes("wall_v")) row.push("│");
+      else if (isBlockingTags(tags)) row.push("#");
+      else if (tags.includes("barricade")) row.push("B");
       else if (tags.includes("cover")) row.push("^");
+      else if (tags.includes("grease")) row.push("G");
+      else if (tags.includes("hazardous")) row.push("!");
       else if (tags.includes("difficult")) row.push("~");
       else row.push(".");
     }
@@ -383,7 +395,63 @@ export function setMapFromImageGrid(
 function isWalkableCell(state: StudioState, x: number, y: number): boolean {
   const cell = state.map.cells.find((c) => c.x === x && c.y === y);
   if (!cell) return false;
-  return !cell.tags.includes("blocking");
+  return !isBlockingTags(cell.tags);
+}
+
+export type PaintBrush = "wall" | "barricade";
+
+/**
+ * Setup toolbox paint: wall cycles floor → horizontal → vertical → floor;
+ * barricade toggles soft-cover "B" (15 ft per three adjacent cells).
+ */
+export function paintStudioCell(
+  state: StudioState,
+  x: number,
+  y: number,
+  brush: PaintBrush,
+): void {
+  if (x < 1 || y < 1 || x > state.map.width || y > state.map.height) {
+    throw new Error(`Cell x${x}y${y} is out of bounds`);
+  }
+  const idx = state.map.cells.findIndex((c) => c.x === x && c.y === y);
+  if (idx < 0) throw new Error(`No cell at x${x}y${y}`);
+  const occupied = [...state.pcs, ...state.enemies].some(
+    (c) => c.start.x === x && c.start.y === y,
+  );
+  const cell = state.map.cells[idx]!;
+
+  if (brush === "wall") {
+    if (occupied) throw new Error(`Can't place a wall on an occupied cell`);
+    const hasH = cell.tags.includes("wall_h");
+    const hasV = cell.tags.includes("wall_v");
+    let next: MapCell["tags"];
+    if (hasH) next = ["wall_v"];
+    else if (hasV) next = ["floor"];
+    else next = ["wall_h"]; // floor / cover / barricade / plain blocking → H
+    state.map.cells[idx] = { x, y, tags: next };
+  } else if (brush === "barricade") {
+    if (isBlockingTags(cell.tags) && occupied) {
+      throw new Error(`Can't place a barricade on an occupied wall`);
+    }
+    if (cell.tags.includes("barricade")) {
+      state.map.cells[idx] = { x, y, tags: ["floor"] };
+    } else {
+      state.map.cells[idx] = { x, y, tags: ["floor", "barricade"] };
+    }
+  } else {
+    throw new Error(`Unknown brush: ${brush}`);
+  }
+
+  // Keep a built encounter's terrain in sync so Run uses painted cells.
+  if (state.encounter) {
+    state.encounter = {
+      ...state.encounter,
+      cells: state.map.cells,
+      width: state.map.width,
+      height: state.map.height,
+    };
+  }
+  state.lastError = undefined;
 }
 
 /** Move a studio token before combat (Setup / deploy). Rejects walls & occupied cells. */

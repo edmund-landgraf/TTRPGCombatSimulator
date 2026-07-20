@@ -9,6 +9,7 @@ Hard rules:
 - Do NOT change numbers from the log.
 - Do NOT compute or guess intermediate HP. If you mention HP, use only values that appear in the log or status block.
 - Prefer character names over ids when both appear.
+- When the log includes a "Narrative note" about lasting spell terrain (e.g. Grease), weave that into the prose — especially when a slick dissipates at the final round of the spell.
 - Short sentences; one or two paragraphs.
 - Plain prose only (no markdown headings, no bullet lists).`;
 

@@ -1,0 +1,61 @@
+{
+  "moduleName": "Level-Band Reasoning",
+  "version": "1.0.0",
+  "description": "Search depth scales with creature level and capability count. Higher bands evaluate more packet candidates and full-turn beams.",
+  "capabilityBumpThreshold": 4,
+  "bands": [
+    {
+      "id": "L1-2",
+      "minLevel": 1,
+      "maxLevel": 2,
+      "maxPacketCandidates": 1,
+      "beamExpand": false,
+      "resourceGate": false,
+      "finishHpThreshold": 6,
+      "resourceAggressiveness": 0.9
+    },
+    {
+      "id": "L3-6",
+      "minLevel": 3,
+      "maxLevel": 6,
+      "maxPacketCandidates": 3,
+      "beamExpand": false,
+      "resourceGate": false,
+      "finishHpThreshold": 10,
+      "resourceAggressiveness": 0.75
+    },
+    {
+      "id": "L7-10",
+      "minLevel": 7,
+      "maxLevel": 10,
+      "maxPacketCandidates": 5,
+      "beamExpand": true,
+      "resourceGate": false,
+      "finishHpThreshold": 16,
+      "resourceAggressiveness": 0.6
+    },
+    {
+      "id": "L11+",
+      "minLevel": 11,
+      "maxLevel": 99,
+      "maxPacketCandidates": 5,
+      "beamExpand": true,
+      "resourceGate": true,
+      "finishHpThreshold": 24,
+      "resourceAggressiveness": 0.45
+    }
+  ],
+  "scoreWeights": {
+    "basePriority": 1.0,
+    "overlayPriorityBonus": 1.0,
+    "capabilityHint": 1.0,
+    "battlefieldFlankReady": 1.5,
+    "battlefieldTriage": 2.0,
+    "battlefieldRangedLos": 0.8,
+    "mapWastePenalty": -2.0,
+    "resourceDumpPenalty": -1.5,
+    "beamDamageEv": 0.15,
+    "beamHealEv": 0.2,
+    "beamMitigation": 0.5
+  }
+}

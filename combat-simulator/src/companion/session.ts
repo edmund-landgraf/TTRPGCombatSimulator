@@ -5,6 +5,7 @@ import {
   formatRoundSummary,
   formatStatusRoster,
 } from "../orch/roundOutput.js";
+import { describeVitalStatus } from "../rules/pf2e/dying.js";
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -26,6 +27,8 @@ export type BoardToken = {
   x: number;
   y: number;
   downed: boolean;
+  vitalState?: "ok" | "unconscious" | "dying" | "dead";
+  vitalLabel?: string;
 };
 
 export type BoardSnapshot = {
@@ -47,6 +50,14 @@ export type CombatantSnapshot = {
   y: number;
   tokenChar: string;
   downed: boolean;
+  /** PF2e vital state derived from HP / Dying / Dead. */
+  vitalState: "ok" | "unconscious" | "dying" | "dead";
+  dying: number;
+  wounded: number;
+  /** Short label e.g. "Dying 2 (unconscious)". */
+  vitalLabel: string;
+  /** PF2e timing note (how long before death, etc.). */
+  vitalNote: string;
   conditions: string[];
   weapons: string[];
   spells: string[];
@@ -90,11 +101,12 @@ export type CombatContext = {
 
 /** Reconstruct full grid (including walls) for the companion UI. */
 export function buildBoard(mem: CombatMemory): BoardSnapshot {
-  const { width, height, walkable } = mem.grid;
+  const { width, height, walkable, blocked } = mem.grid;
   const cells: BoardCell[] = [];
   for (let y = 1; y <= height; y++) {
     for (let x = 1; x <= width; x++) {
-      const w = walkable.get(cellId({ x, y }));
+      const id = cellId({ x, y });
+      const w = walkable.get(id) ?? blocked?.get(id);
       cells.push({
         x,
         y,
@@ -102,15 +114,20 @@ export function buildBoard(mem: CombatMemory): BoardSnapshot {
       });
     }
   }
-  const tokens: BoardToken[] = [...mem.combatants.values()].map((c) => ({
-    id: c.id,
-    name: c.name,
-    side: c.side,
-    tokenChar: c.tokenChar,
-    x: c.pos.x,
-    y: c.pos.y,
-    downed: c.downed,
-  }));
+  const tokens: BoardToken[] = [...mem.combatants.values()].map((c) => {
+    const vital = describeVitalStatus(c);
+    return {
+      id: c.id,
+      name: c.name,
+      side: c.side,
+      tokenChar: c.tokenChar,
+      x: c.pos.x,
+      y: c.pos.y,
+      downed: c.downed,
+      vitalState: vital.state,
+      vitalLabel: vital.label,
+    };
+  });
   return { width, height, cells, tokens };
 }
 
@@ -283,29 +300,39 @@ export class CompanionSession {
     },
   ): void {
     this.liveMemory = mem;
-    const combatants: CombatantSnapshot[] = [...mem.combatants.values()].map((c) => ({
-      id: c.id,
-      name: c.name,
-      side: c.side,
-      hp: c.hp,
-      maxHp: c.maxHp,
-      ac: c.ac,
-      pos: cellId(c.pos),
-      x: c.pos.x,
-      y: c.pos.y,
-      tokenChar: c.tokenChar,
-      downed: c.downed,
-      conditions: c.conditions.map((x) => x.name),
-      weapons: c.weapons.map((w) => w.id),
-      spells: c.spells.map((s) => s.name),
-      spellUsesLeft: c.spells
-        .filter((s) => s.rank > 0 && s.usesPerCombat != null)
-        .map((s) => {
-          const used = c.spellUses.get(s.id) ?? 0;
-          const left = Math.max(0, (s.usesPerCombat ?? 0) - used);
-          return `${s.name} ${left}/${s.usesPerCombat}`;
-        }),
-    }));
+    const combatants: CombatantSnapshot[] = [...mem.combatants.values()].map((c) => {
+      const vital = describeVitalStatus(c);
+      return {
+        id: c.id,
+        name: c.name,
+        side: c.side,
+        hp: c.hp,
+        maxHp: c.maxHp,
+        ac: c.ac,
+        pos: cellId(c.pos),
+        x: c.pos.x,
+        y: c.pos.y,
+        tokenChar: c.tokenChar,
+        downed: c.downed,
+        vitalState: vital.state,
+        dying: vital.dying,
+        wounded: vital.wounded,
+        vitalLabel: vital.label,
+        vitalNote: vital.note,
+        conditions: c.conditions.map((x) =>
+          x.value != null ? `${x.name} ${x.value}` : x.name,
+        ),
+        weapons: c.weapons.map((w) => w.id),
+        spells: c.spells.map((s) => s.name),
+        spellUsesLeft: c.spells
+          .filter((s) => s.rank > 0 && s.usesPerCombat != null)
+          .map((s) => {
+            const used = c.spellUses.get(s.id) ?? 0;
+            const left = Math.max(0, (s.usesPerCombat ?? 0) - used);
+            return `${s.name} ${left}/${s.usesPerCombat}`;
+          }),
+      };
+    });
 
     const phase =
       opts?.phase ??
@@ -445,15 +472,26 @@ export function formatContextForLlm(
         ].join("\n")
       : ["=== Recent combat log ===", ctx.recentLog || "(no actions yet)"].join("\n"),
     "",
-    "=== Combatants ===",
+    "=== Combatants (PF2e vital state) ===",
     ...ctx.combatants.map((c) => {
       const uses =
         c.spellUsesLeft?.length ? ` rankedUses=${c.spellUsesLeft.join("; ")}` : "";
+      const vital =
+        c.vitalState && c.vitalState !== "ok"
+          ? ` [${c.vitalLabel || c.vitalState}]`
+          : c.wounded
+            ? ` [Wounded ${c.wounded}]`
+            : "";
+      const note =
+        c.vitalNote && c.vitalState && c.vitalState !== "ok"
+          ? `\n    ${c.vitalNote}`
+          : "";
       return (
-        `- ${c.id} ${c.name} [${c.side}] hp ${c.hp}/${c.maxHp}${c.downed ? " downed" : ""} AC ${c.ac} @ ${c.pos}` +
+        `- ${c.id} ${c.name} [${c.side}] hp ${c.hp}/${c.maxHp}${vital} AC ${c.ac} @ ${c.pos}` +
         (c.conditions.length ? ` cond=${c.conditions.join(",")}` : "") +
         ` weapons=${c.weapons.join("/") || "—"} spells=${c.spells.join("/") || "—"}` +
-        uses
+        uses +
+        note
       );
     }),
   ].join("\n");

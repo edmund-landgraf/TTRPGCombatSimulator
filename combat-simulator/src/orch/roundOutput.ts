@@ -2,8 +2,13 @@ import type { CombatantState, CombatMemory } from "../memory/combatMemory.js";
 import { living } from "../memory/combatMemory.js";
 import { cellId } from "../memory/schemas.js";
 import type { Weapon } from "../memory/schemas.js";
+import {
+  formatActiveTerrainStatus,
+  formatTerrainNarrativeNotes,
+} from "../map/aoe.js";
 import { chebyshev } from "../map/grid.js";
 import { renderAscii } from "../map/ascii.js";
+import { describeVitalStatus, formatVitalRosterLine } from "../rules/pf2e/dying.js";
 
 /** Max Chebyshev cells a weapon can Strike. */
 function weaponRangeCells(w: Weapon): number {
@@ -55,20 +60,32 @@ export function formatStatusRoster(mem: CombatMemory): string {
     lines.push(label);
     for (const c of mem.combatants.values()) {
       if (c.side !== side) continue;
-      const cond =
-        c.conditions.length === 0
-          ? "—"
-          : c.conditions.map((x) => (x.value != null ? `${x.name} ${x.value}` : x.name)).join(", ");
-      const down = c.downed ? " (downed)" : "";
+      const vital = describeVitalStatus(c);
+      const vitalTag = formatVitalRosterLine(c);
+      const condParts = c.conditions
+        .filter((x) => !["dying", "unconscious", "dead", "wounded"].includes(x.name))
+        .map((x) => (x.value != null ? `${x.name} ${x.value}` : x.name));
+      const cond = condParts.length === 0 ? "—" : condParts.join(", ");
+      const statusBit = vitalTag ? ` [${vitalTag}]` : "";
       lines.push(
-        `  ${c.id.padEnd(4)} ${c.name.padEnd(10)} hp ${String(c.hp).padStart(2)}/${c.maxHp}${down}  @ ${cellId(c.pos)}  conditions: ${cond}`,
+        `  ${c.id.padEnd(4)} ${c.name.padEnd(10)} hp ${String(c.hp).padStart(2)}/${c.maxHp}${statusBit}  @ ${cellId(c.pos)}  conditions: ${cond}`,
       );
+      if (vital.state === "dying" || vital.state === "dead" || vital.state === "unconscious") {
+        lines.push(`       → ${vital.note}`);
+      } else if (vital.wounded > 0) {
+        lines.push(`       → ${vital.note}`);
+      }
       lines.push(...formatDistanceLines(c, mem));
     }
   };
 
   formatSide("party", "PARTY");
   formatSide("enemy", "ENEMY");
+
+  const terrainLines = formatActiveTerrainStatus(mem);
+  if (terrainLines.length) {
+    lines.push(...terrainLines);
+  }
 
   const updates: string[] = [];
   for (const c of mem.combatants.values()) {
@@ -125,7 +142,8 @@ export function formatRoundSummary(mem: CombatMemory): string {
     if (!actor) continue;
     const hpStart = mem.hpAtRoundStart.get(id) ?? actor.hp;
     if (actor.downed && hpStart === 0) {
-      bullets.push(`- ${actor.name} remained downed`);
+      const vital = describeVitalStatus(actor);
+      bullets.push(`- ${actor.name} is ${vital.label}`);
       continue;
     }
 
@@ -145,13 +163,32 @@ export function formatRoundSummary(mem: CombatMemory): string {
 
     // Chronological actions for this actor (one bullet each).
     const mine = roundEvents.filter(
-      (e) => "actor" in e && e.actor === id && (e.t === "move" || e.t === "attack" || e.t === "spell"),
+      (e) =>
+        "actor" in e &&
+        e.actor === id &&
+        (e.t === "move" ||
+          e.t === "attack" ||
+          e.t === "spell" ||
+          e.t === "hazard" ||
+          e.t === "terrain"),
     );
 
     for (const e of mine) {
       if (e.t === "move") {
         const verb = e.kind === "Step" ? "stepped" : "strode";
         bullets.push(`- ${actor.name} ${verb} to ${e.to}`);
+      } else if (e.t === "hazard") {
+        bullets.push(
+          `- ${actor.name} took ${e.dmg} from hazardous terrain at ${e.cell} (hp ${e.hpAfter})`,
+        );
+      } else if (e.t === "terrain") {
+        const dur =
+          e.durationRounds <= 0
+            ? "until combat end"
+            : `${e.durationRounds} rounds (through r${e.expiresAtEndOfRound})`;
+        bullets.push(
+          `- ${actor.name} created ${e.glyph} (${e.tag}) with ${e.spellName} on ${e.cells.join(", ")} — ${dur}`,
+        );
       } else if (e.t === "attack") {
         const tgt = mem.combatants.get(e.target)?.name ?? e.target;
         const wpn = e.weaponName ?? e.weapon;
@@ -184,14 +221,28 @@ export function formatRoundSummary(mem: CombatMemory): string {
 
     if (mine.length === 0 && !delayed) {
       if (actor.downed && hpStart > 0) {
-        bullets.push(`- ${actor.name} was dropped before acting`);
+        const vital = describeVitalStatus(actor);
+        bullets.push(`- ${actor.name} was dropped (${vital.label})`);
       } else {
         bullets.push(`- ${actor.name} held position`);
       }
     }
   }
 
-  return `--- Round ${mem.round} summary ---\n${bullets.join("\n")}`;
+  const expires = roundEvents.filter((e) => e.t === "terrain_expire");
+  for (const e of expires) {
+    if (e.t !== "terrain_expire") continue;
+    bullets.push(
+      `- ${e.spellName} ${e.glyph} (${e.tag}) expired on ${e.cells.join(", ")}`,
+    );
+  }
+
+  const narrativeNotes = formatTerrainNarrativeNotes(mem);
+  const parts = [`--- Round ${mem.round} summary ---`, bullets.join("\n")];
+  if (narrativeNotes.length) {
+    parts.push("", ...narrativeNotes);
+  }
+  return parts.join("\n");
 }
 export function formatRoundEnd(mem: CombatMemory): string {
   return [formatStatusRoster(mem), "", formatAsciiBoard(mem), "", formatRoundSummary(mem)].join(

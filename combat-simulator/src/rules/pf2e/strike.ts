@@ -1,15 +1,16 @@
 import type { CombatantState, CombatMemory } from "../../memory/combatMemory.js";
 import type { Weapon } from "../../memory/schemas.js";
-import { chebyshev, hasCover, hasLineOfSight } from "../../map/grid.js";
+import { chebyshev, hasCoverFromAttack, hasLineOfSight } from "../../map/grid.js";
 import { isFlanking } from "../../ai/flank.js";
 import { groupFlags } from "../../ai/tacticsGroups.js";
 import { formatDamageRoll, formatDiceExpr, rollDamage } from "./damage.js";
+import { applyIncomingDamage } from "./dying.js";
 import type { SeededRng } from "./rng.js";
 
-export function mapPenalty(map: number): number {
+export function mapPenalty(map: number, agile = false): number {
   if (map <= 0) return 0;
-  if (map === 1) return -5;
-  return -10;
+  if (map === 1) return agile ? -4 : -5;
+  return agile ? -8 : -10;
 }
 
 export function weaponLabel(weapon: Weapon): string {
@@ -30,11 +31,16 @@ export function estimatePHit(
     if (!hasLineOfSight(mem.grid, attacker.pos, target.pos)) return 0;
   }
   let ac = target.ac;
-  if (weapon.kind === "ranged" && hasCover(mem.grid, target.pos)) ac += 2;
+  if (
+    weapon.kind === "ranged" &&
+    hasCoverFromAttack(mem.grid, attacker.pos, target.pos)
+  ) {
+    ac += 2; // PF2e standard cover (incl. soft barricade)
+  }
   if (weapon.kind === "melee" && isFlanking(mem, attacker, target, weapon.reach ?? 1)) {
     ac -= 2; // off-guard from flanking
   }
-  const mod = weapon.attackBonus + mapPenalty(attacker.map);
+  const mod = weapon.attackBonus + mapPenalty(attacker.map, !!weapon.agile);
   const need = ac - mod;
   if (need <= 1) return 0.95;
   if (need >= 20) return 0.05;
@@ -82,13 +88,18 @@ export function resolveStrike(
   }
 
   let ac = target.ac;
-  if (weapon.kind === "ranged" && hasCover(mem.grid, target.pos)) ac += 2;
+  if (
+    weapon.kind === "ranged" &&
+    hasCoverFromAttack(mem.grid, attacker.pos, target.pos)
+  ) {
+    ac += 2; // PF2e standard cover (incl. soft barricade)
+  }
   const flanked =
     weapon.kind === "melee" && isFlanking(mem, attacker, target, weapon.reach ?? 1);
   if (flanked) ac -= 2;
 
   const d20 = rng.d20();
-  const mod = weapon.attackBonus + mapPenalty(attacker.map);
+  const mod = weapon.attackBonus + mapPenalty(attacker.map, !!weapon.agile);
   const total = d20 + mod;
   const crit = d20 === 20 || total >= ac + 10;
   const hit = crit || total >= ac;
@@ -110,12 +121,8 @@ export function resolveStrike(
       diceRolls = [...diceRolls, ...sneakRoll.rolls];
       damageExpr = `${damageExpr}+${sneakTotal} sneak`;
     }
-    target.hp = Math.max(0, target.hp - dmg);
     target.conditions = target.conditions.filter((c) => c.name !== "asleep");
-    if (target.hp <= 0) {
-      target.downed = true;
-      target.hp = 0;
-    }
+    applyIncomingDamage(target, dmg, { critical: crit });
   }
 
   mem.events.push({
