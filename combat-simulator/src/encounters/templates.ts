@@ -3,11 +3,21 @@ import {
   type CombatantFixture,
   type Position,
   type Spell,
+  type TacticsGroupId,
 } from "../memory/schemas.js";
+import { defaultTacticsGroupForRole } from "../ai/tacticsGroups.js";
 
 type Template = Omit<
   CombatantFixture,
-  "id" | "name" | "start" | "tokenChar" | "saveBonus" | "spells" | "level"
+  | "id"
+  | "name"
+  | "start"
+  | "tokenChar"
+  | "saveBonus"
+  | "spells"
+  | "level"
+  | "tacticsGroup"
+  | "tacticsSecondary"
 > & {
   key: string;
   name: string;
@@ -17,6 +27,8 @@ type Template = Omit<
   saveBonus?: number;
   /** Partial spell defs; Zod fills defaults on instantiate. */
   spells?: Array<Partial<Spell> & Pick<Spell, "id" | "name" | "kind">>;
+  tacticsGroup?: TacticsGroupId;
+  tacticsSecondary?: TacticsGroupId;
 };
 
 export const PC_TEMPLATES: Template[] = [
@@ -26,6 +38,7 @@ export const PC_TEMPLATES: Template[] = [
     tokenChar: "F",
     side: "party",
     role: "fighter",
+    tacticsGroup: "frontliner",
     creatureLevel: 1,
     maxHp: 20,
     ac: 18,
@@ -49,6 +62,7 @@ export const PC_TEMPLATES: Template[] = [
         Stride_close: 1.2,
         Stride_cover: 0.3,
         Step_away: 0.2,
+        Delay: 0.7,
         End_turn: 0.1,
       },
       featureBias: { selfPreservation: 0.3, focusCaster: 0.4 },
@@ -60,6 +74,7 @@ export const PC_TEMPLATES: Template[] = [
     tokenChar: "W",
     side: "party",
     role: "wizard",
+    tacticsGroup: "blaster",
     creatureLevel: 1,
     maxHp: 14,
     ac: 15,
@@ -139,9 +154,10 @@ export const PC_TEMPLATES: Template[] = [
         Cast_spell: 1.2,
         Strike_melee: 0.05,
         Strike_ranged: 0.2,
-        Stride_close: 0.15,
+        Stride_close: 0.9,
         Stride_cover: 0.9,
         Step_away: 1.0,
+        Delay: 0.05,
         End_turn: 0.2,
       },
       featureBias: { preferCover: 0.8, selfPreservation: 0.9 },
@@ -153,6 +169,7 @@ export const PC_TEMPLATES: Template[] = [
     tokenChar: "R",
     side: "party",
     role: "rogue",
+    tacticsGroup: "flanker",
     creatureLevel: 1,
     maxHp: 16,
     ac: 17,
@@ -181,14 +198,15 @@ export const PC_TEMPLATES: Template[] = [
     ],
     aiProfile: {
       weights: {
-        Strike_melee: 1.1,
-        Strike_ranged: 0.9,
-        Stride_close: 1.0,
-        Stride_cover: 0.5,
-        Step_away: 0.4,
+        Strike_melee: 1.25,
+        Strike_ranged: 1.15,
+        Stride_close: 0.7,
+        Stride_cover: 0.35,
+        Step_away: 0.55,
         End_turn: 0.1,
       },
-      featureBias: { selfPreservation: 0.5 },
+      // Stay back with casters; only close when a flank/sneak cell scores.
+      featureBias: { selfPreservation: 0.55 },
     },
   },
   {
@@ -197,6 +215,7 @@ export const PC_TEMPLATES: Template[] = [
     tokenChar: "C",
     side: "party",
     role: "cleric",
+    tacticsGroup: "healer",
     creatureLevel: 1,
     maxHp: 18,
     ac: 17,
@@ -263,6 +282,7 @@ export const PC_TEMPLATES: Template[] = [
     tokenChar: "H",
     side: "party",
     role: "champion",
+    tacticsGroup: "frontliner",
     creatureLevel: 1,
     maxHp: 22,
     ac: 19,
@@ -300,6 +320,7 @@ export const ENEMY_TEMPLATES: Template[] = [
     tokenChar: "g",
     side: "enemy",
     role: "minion",
+    tacticsGroup: "frontliner",
     creatureLevel: -3,
     maxHp: 4,
     ac: 13,
@@ -333,6 +354,7 @@ export const ENEMY_TEMPLATES: Template[] = [
     tokenChar: "b",
     side: "enemy",
     role: "blade",
+    tacticsGroup: "frontliner",
     creatureLevel: -1,
     maxHp: 12,
     ac: 16,
@@ -367,6 +389,7 @@ export const ENEMY_TEMPLATES: Template[] = [
     tokenChar: "a",
     side: "enemy",
     role: "archer",
+    tacticsGroup: "archer",
     creatureLevel: -1,
     maxHp: 10,
     ac: 15,
@@ -386,14 +409,15 @@ export const ENEMY_TEMPLATES: Template[] = [
     ],
     aiProfile: {
       weights: {
-        Strike_melee: 0.2,
-        Strike_ranged: 1.4,
-        Stride_close: 0.2,
-        Stride_cover: 0.9,
-        Step_away: 0.8,
+        Strike_melee: 0.15,
+        Strike_ranged: 1.65,
+        Stride_close: 0.15,
+        Stride_cover: 0.35,
+        Step_away: 1.1,
         End_turn: 0.1,
       },
-      featureBias: { preferCover: 0.9, focusCaster: 0.6 },
+      // Shoot from the back line — do not advance into the scrum.
+      featureBias: { preferCover: 0.25, focusCaster: 0.6, selfPreservation: 0.7 },
     },
   },
   {
@@ -402,6 +426,7 @@ export const ENEMY_TEMPLATES: Template[] = [
     tokenChar: "S",
     side: "enemy",
     role: "shaman",
+    tacticsGroup: "blaster",
     creatureLevel: 1,
     maxHp: 15,
     ac: 15,
@@ -435,15 +460,16 @@ export const ENEMY_TEMPLATES: Template[] = [
     ],
     aiProfile: {
       weights: {
-        Cast_cantrip: 1.5,
-        Strike_melee: 0.3,
+        Cast_cantrip: 1.6,
+        Strike_melee: 0.25,
         Strike_ranged: 0.2,
-        Stride_close: 0.3,
-        Stride_cover: 1.0,
-        Step_away: 0.9,
+        Stride_close: 0.15,
+        Stride_cover: 0.55,
+        Step_away: 1.15,
         End_turn: 0.2,
       },
-      featureBias: { preferCover: 1.0, selfPreservation: 0.8, focusCaster: 0.5 },
+      // Stay visible on the back line casting — don't vanish into the melee pile.
+      featureBias: { preferCover: 0.45, selfPreservation: 0.9, focusCaster: 0.5 },
     },
   },
   {
@@ -452,6 +478,7 @@ export const ENEMY_TEMPLATES: Template[] = [
     tokenChar: "B",
     side: "enemy",
     role: "soldier",
+    tacticsGroup: "frontliner",
     creatureLevel: 1,
     maxHp: 20,
     ac: 17,
@@ -487,6 +514,7 @@ export const ENEMY_TEMPLATES: Template[] = [
     tokenChar: "O",
     side: "enemy",
     role: "brute",
+    tacticsGroup: "frontliner",
     creatureLevel: 3,
     maxHp: 50,
     ac: 17,
@@ -534,6 +562,7 @@ export function instantiate(
     level: creatureLevel,
     spells: rest.spells ?? [],
     saveBonus: rest.saveBonus ?? 3,
+    tacticsGroup: rest.tacticsGroup ?? defaultTacticsGroupForRole(template.role),
   });
 }
 

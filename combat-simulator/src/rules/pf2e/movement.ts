@@ -48,6 +48,15 @@ export function resolveStep(
   round: number,
 ): boolean {
   const blocked = occupiedKeys(mem, actor.id);
+  if (blocked.has(cellId(destination))) {
+    mem.events.push({
+      t: "reject",
+      round,
+      actor: actor.id,
+      reason: "Step destination occupied",
+    });
+    return false;
+  }
   const path = findPath(mem.grid, actor.pos, destination, 1, blocked);
   if (!path.ok || path.cost > 1) {
     mem.events.push({

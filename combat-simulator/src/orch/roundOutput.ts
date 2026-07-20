@@ -1,6 +1,52 @@
-import type { CombatMemory } from "../memory/combatMemory.js";
+import type { CombatantState, CombatMemory } from "../memory/combatMemory.js";
+import { living } from "../memory/combatMemory.js";
 import { cellId } from "../memory/schemas.js";
+import type { Weapon } from "../memory/schemas.js";
+import { chebyshev } from "../map/grid.js";
 import { renderAscii } from "../map/ascii.js";
+
+/** Max Chebyshev cells a weapon can Strike. */
+function weaponRangeCells(w: Weapon): number {
+  return w.kind === "ranged" ? (w.rangeCells ?? 12) : (w.reach ?? 1);
+}
+
+function weaponRangeLabel(w: Weapon): string {
+  const max = weaponRangeCells(w);
+  return w.kind === "ranged" ? `${w.id} range ${max}` : `${w.id} reach ${max}`;
+}
+
+/** Distances to living foes + whether each weapon reaches them. */
+function formatDistanceLines(actor: CombatantState, mem: CombatMemory): string[] {
+  if (actor.downed) return [];
+  const foes = living(mem).filter((f) => f.side !== actor.side);
+  if (foes.length === 0) return [];
+
+  const dists = foes
+    .map((f) => ({ id: f.id, d: chebyshev(actor.pos, f.pos) }))
+    .sort((a, b) => a.d - b.d || a.id.localeCompare(b.id));
+
+  const out: string[] = [
+    `    foes: ${dists.map(({ id, d }) => `${id}@${d}`).join(" ")}`,
+  ];
+
+  for (const w of actor.weapons) {
+    const max = weaponRangeCells(w);
+    const inReach = dists.filter((x) => x.d <= max);
+    const outOfReach = dists.filter((x) => x.d > max);
+    let verdict: string;
+    if (outOfReach.length === 0) {
+      verdict = "reaches all";
+    } else if (inReach.length === 0) {
+      verdict = "out of reach for all";
+    } else {
+      verdict =
+        `reaches ${inReach.map((x) => x.id).join(" ")}; ` +
+        `out: ${outOfReach.map((x) => `${x.id}@${x.d}`).join(" ")}`;
+    }
+    out.push(`    ${weaponRangeLabel(w)} — ${verdict}`);
+  }
+  return out;
+}
 
 export function formatStatusRoster(mem: CombatMemory): string {
   const lines: string[] = [`--- Status (end of Round ${mem.round}) ---`];
@@ -17,6 +63,7 @@ export function formatStatusRoster(mem: CombatMemory): string {
       lines.push(
         `  ${c.id.padEnd(4)} ${c.name.padEnd(10)} hp ${String(c.hp).padStart(2)}/${c.maxHp}${down}  @ ${cellId(c.pos)}  conditions: ${cond}`,
       );
+      lines.push(...formatDistanceLines(c, mem));
     }
   };
 
@@ -55,13 +102,45 @@ export function formatRoundSummary(mem: CombatMemory): string {
     (e) => ("round" in e && e.round === mem.round) || false,
   );
 
+  const seen = new Set<string>();
+  const order: string[] = [];
   for (const id of mem.initiative) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      order.push(id);
+    }
+  }
+  for (const e of roundEvents) {
+    if (
+      (e.t === "delay" || e.t === "delay_forfeit" || e.t === "delay_return") &&
+      !seen.has(e.actor)
+    ) {
+      seen.add(e.actor);
+      order.push(e.actor);
+    }
+  }
+
+  for (const id of order) {
     const actor = mem.combatants.get(id);
     if (!actor) continue;
     const hpStart = mem.hpAtRoundStart.get(id) ?? actor.hp;
     if (actor.downed && hpStart === 0) {
       bullets.push(`- ${actor.name} remained downed`);
       continue;
+    }
+
+    const delayed = roundEvents.find((e) => e.t === "delay" && e.actor === id);
+    const returned = roundEvents.find((e) => e.t === "delay_return" && e.actor === id);
+    const forfeit = roundEvents.find((e) => e.t === "delay_forfeit" && e.actor === id);
+    if (delayed) {
+      bullets.push(`- ${actor.name} Delayed (waiting to act later)`);
+      if (returned && returned.t === "delay_return") {
+        const after = mem.combatants.get(returned.after)?.name ?? returned.after;
+        bullets.push(`- ${actor.name} returned from Delay after ${after}`);
+      }
+      if (forfeit) {
+        bullets.push(`- ${actor.name} forfeited Delayed turn`);
+      }
     }
 
     // Chronological actions for this actor (one bullet each).
@@ -103,7 +182,7 @@ export function formatRoundSummary(mem: CombatMemory): string {
       }
     }
 
-    if (mine.length === 0) {
+    if (mine.length === 0 && !delayed) {
       if (actor.downed && hpStart > 0) {
         bullets.push(`- ${actor.name} was dropped before acting`);
       } else {

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Combat Studio</title>
-    <link rel="stylesheet" href="/styles.css?v=15" />
+    <link rel="stylesheet" href="/styles.css?v=19" />
   </head>
   <body>
     <div class="shell">
@@ -14,7 +14,8 @@
         <button type="button" class="tab" data-tab="logs">Logs</button>
         <button type="button" class="tab" data-tab="loop">Loop</button>
         <button type="button" class="tab" data-tab="chat">Chat</button>
-        <span id="model" class="pill muted tab-meta">model</span>
+        <button type="button" id="settingsBtn" class="tab tab-settings tab-meta">Settings</button>
+        <span id="model" class="pill muted">model</span>
       </nav>
 
       <div class="app">
@@ -33,7 +34,11 @@
             <div class="setup-grid">
               <section class="panel">
                 <h2>PCs (JSON)</h2>
-                <p class="hint">Array of combatants, or one object. Side is forced to party.</p>
+                <p class="hint">
+                  Array of combatants, or one object. Side is forced to party. Assign a
+                  <strong>primary</strong> tactics group and optional <strong>secondary</strong>
+                  (e.g. frontliner + battlefield control).
+                </p>
                 <label class="file-btn">
                   Choose JSON
                   <input type="file" id="pcsFile" accept=".json,application/json" hidden />
@@ -43,7 +48,10 @@
 
               <section class="panel">
                 <h2>Enemies (JSON)</h2>
-                <p class="hint">Array of combatants, or one object. Side is forced to enemy.</p>
+                <p class="hint">
+                  Array of combatants, or one object. Side is forced to enemy. Primary + optional
+                  secondary tactics, same catalog as PCs.
+                </p>
                 <label class="file-btn">
                   Choose JSON
                   <input type="file" id="enemiesFile" accept=".json,application/json" hidden />
@@ -54,8 +62,8 @@
               <section class="panel map-panel">
                 <h2>Map</h2>
                 <p class="hint">
-                  Square ASCII grid (Size × Size). Party south in a tight block — normal 4 PCs is
-                  2×2 (XX / XX): tough front, frail back. Enemies north the same way.
+                  Square grid (Size × Size). Auto-place puts <strong>enemies on the north edge</strong> and
+                  <strong>party on the south edge</strong>. Drag tokens to adjust before you run.
                 </p>
                 <div class="map-controls">
                   <label>
@@ -81,7 +89,19 @@
                 </div>
                 <div class="map-preview-row">
                   <img id="mapImg" alt="Map preview" hidden />
-                  <pre id="mapAscii" class="mono map-ascii">Generate a square map or keep the classic default.</pre>
+                  <div class="setup-map-block">
+                    <div class="battle-map-header">
+                      <h2>Deployment</h2>
+                    </div>
+                    <p id="setupMapHint" class="meta setup-map-hint">
+                      Load sample or import combatants — then drag tokens on the grid.
+                    </p>
+                    <div class="battle-map-body">
+                      <div id="setupMap" class="battle-map setup-map" aria-label="Setup battle grid"></div>
+                      <ul id="setupLegend" class="battle-map-legend" aria-label="Map legend"></ul>
+                    </div>
+                    <pre id="mapAscii" class="mono map-ascii" hidden></pre>
+                  </div>
                 </div>
               </section>
             </div>
@@ -103,13 +123,25 @@
               <div class="pills header-actions">
                 <span id="phase" class="pill">idle</span>
                 <button type="button" id="advanceRoundBtn" class="accent-btn" hidden>
-                  Next round (Enter)
+                  Start Round 1 (Enter)
                 </button>
                 <button type="button" id="clearCombatBtn" class="ghost">Clear</button>
               </div>
             </header>
+            <section id="battleMapWrap" class="battle-map-wrap" hidden aria-label="Battle map">
+              <div class="battle-map-header">
+                <h2 id="battleMapTitle">Map</h2>
+              </div>
+              <p id="deployHint" class="meta deploy-hint" hidden>
+                Drag tokens onto walkable cells, then continue with <strong>Enter</strong>.
+              </p>
+              <div class="battle-map-body">
+                <div id="battleMap" class="battle-map" role="img" aria-label="Graphical battle grid"></div>
+                <ul id="battleLegend" class="battle-map-legend" aria-label="Map legend"></ul>
+              </div>
+            </section>
             <div id="roundStage" class="round-stage" tabindex="0">
-              <p class="round-empty meta">Run combat from Setup — each round pauses here. Press Enter for the next.</p>
+              <p class="round-empty meta">Run combat from Setup — pauses follow Settings (rounds and/or turns). Press Enter to continue.</p>
             </div>
             <!-- legacy ids kept for polling helpers -->
             <pre id="status" hidden></pre>
@@ -121,7 +153,7 @@
             <header class="combat-header">
               <div>
                 <h1>Run logs</h1>
-                <p class="meta">Saved walks and theater dumps. Click a run to open the walkthrough below.</p>
+                <p class="meta">Grouped by roster, grid, and day. Expand a container, then click a run for the walkthrough.</p>
               </div>
               <div class="pills header-actions">
                 <button type="button" id="refreshRunsBtn" class="ghost">Refresh</button>
@@ -187,7 +219,7 @@
               <div>
                 <h2>Side chat</h2>
                 <p id="chatMeta" class="meta">
-                  Ask during a round pause (Combat → Enter waits). Knows paused vs ended. Does not change combat.
+                  Ask during a combat pause (Combat → Enter waits). Knows paused vs ended. Does not change combat.
                 </p>
               </div>
               <div class="pills header-actions">
@@ -209,6 +241,61 @@
       </div>
     </div>
     <canvas id="sampleCanvas" hidden></canvas>
-    <script src="/app.js?v=15"></script>
+
+    <div id="settingsModal" class="modal" hidden aria-hidden="true">
+      <div class="modal-backdrop" data-close-settings></div>
+      <div
+        class="modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settingsTitle"
+      >
+        <header class="modal-header">
+          <h2 id="settingsTitle">Settings</h2>
+          <button type="button" class="ghost modal-close" data-close-settings aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <div class="modal-body">
+          <label class="settings-row">
+            <span class="settings-label">
+              Save tactical logs?
+              <span class="settings-hint"
+                >Write decision trees to <code>combat-simulator/logs/tactics/</code> when combat
+                ends (works even if run history save is off).</span
+              >
+            </span>
+            <input type="checkbox" id="saveTacticsLogs" checked />
+          </label>
+          <label class="settings-row">
+            <span class="settings-label">
+              Pause between rounds?
+              <span class="settings-hint"
+                >After each full round, wait for Enter before the next. Also enables deploy before Round
+                1 (with turn pauses).</span
+              >
+            </span>
+            <input type="checkbox" id="pauseEachRound" checked />
+          </label>
+          <label class="settings-row">
+            <span class="settings-label">
+              Pause between each enemy or PC turn?
+              <span class="settings-hint"
+                >After each combatant finishes their actions, wait for Enter. The battle map updates
+                live at every turn pause.</span
+              >
+            </span>
+            <input type="checkbox" id="pauseEachTurn" />
+          </label>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" id="settingsSaveBtn" class="accent-btn">Save</button>
+          <button type="button" class="ghost" data-close-settings>Cancel</button>
+        </footer>
+        <p id="settingsMsg" class="meta setup-msg"></p>
+      </div>
+    </div>
+
+    <script src="/app.js?v=20"></script>
   </body>
 </html>

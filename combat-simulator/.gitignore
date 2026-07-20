@@ -1,4 +1,7 @@
 node_modules/
 dist/
 runs/
+logs/tactics/*
+!logs/tactics/.gitkeep
+!logs/tactics/.settings.json
 *.log

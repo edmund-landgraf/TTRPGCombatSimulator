@@ -3,12 +3,15 @@ import type {
   EncounterFixture,
   Position,
   Spell,
+  TacticsGroupId,
   Weapon,
   WeightDelta,
 } from "./schemas.js";
 import { cellId } from "./schemas.js";
 import type { Grid } from "../map/grid.js";
 import { buildGrid } from "../map/grid.js";
+import type { DecisionNode } from "../ai/decisionLog.js";
+import { resolveTacticsGroup } from "../ai/tacticsGroups.js";
 
 export type Condition = { id: string; name: string; value?: number };
 
@@ -32,6 +35,10 @@ export type CombatantState = {
   /** Ranked spell id → times used this combat. */
   spellUses: Map<string, number>;
   aiProfile: AiProfile;
+  /** Primary tactics group driving AI playstyle. */
+  tacticsGroup: TacticsGroupId;
+  /** Optional secondary group blended under the primary. */
+  tacticsSecondary?: TacticsGroupId;
   conditions: Condition[];
   downed: boolean;
   actionsLeft: number;
@@ -113,6 +120,23 @@ export type CombatEvent =
       actor: string;
     }
   | {
+      t: "delay";
+      round: number;
+      actor: string;
+      originalIndex: number;
+    }
+  | {
+      t: "delay_return";
+      round: number;
+      actor: string;
+      after: string;
+    }
+  | {
+      t: "delay_forfeit";
+      round: number;
+      actor: string;
+    }
+  | {
       t: "round_end";
       round: number;
     }
@@ -121,6 +145,12 @@ export type CombatEvent =
       reason: string;
       winner: "party" | "enemy" | "draw";
     };
+
+/** Actor removed from initiative via Delay until they return or forfeit. */
+export type DelayedEntry = {
+  round: number;
+  originalIndex: number;
+};
 
 export type CombatMemory = {
   encounterId: string;
@@ -132,7 +162,11 @@ export type CombatMemory = {
   combatants: Map<string, CombatantState>;
   initiative: string[];
   initIndex: number;
+  /** Currently Delayed combatants (not in initiative until return). */
+  delayed: Map<string, DelayedEntry>;
   events: CombatEvent[];
+  /** Dual-commander decision tree (party-commander / enemy-commander). */
+  decisionLog: DecisionNode[];
   weightDeltas: WeightDelta[];
   notes: string;
   hpAtRoundStart: Map<string, number>;
@@ -164,6 +198,8 @@ export function createMemory(
       spells: c.spells ?? [],
       spellUses: new Map(),
       aiProfile: c.aiProfile,
+      tacticsGroup: resolveTacticsGroup(c.tacticsGroup, c.role),
+      tacticsSecondary: c.tacticsSecondary,
       conditions: [],
       downed: false,
       actionsLeft: 3,
@@ -181,7 +217,9 @@ export function createMemory(
     combatants,
     initiative: [],
     initIndex: 0,
+    delayed: new Map(),
     events: [],
+    decisionLog: [],
     weightDeltas: [],
     notes,
     hpAtRoundStart: new Map(),

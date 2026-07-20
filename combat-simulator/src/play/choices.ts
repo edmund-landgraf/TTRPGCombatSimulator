@@ -1,5 +1,5 @@
 import type { Candidate } from "../ai/scorer.js";
-import { rankCandidates } from "../ai/scorer.js";
+import { candidateKey, rankCandidates } from "../ai/scorer.js";
 import type { CombatantState, CombatMemory } from "../memory/combatMemory.js";
 import { living } from "../memory/combatMemory.js";
 import { cellId } from "../memory/schemas.js";
@@ -142,20 +142,6 @@ function describe(
     };
   }
   return null;
-}
-
-function candidateKey(c: Candidate): string {
-  if (c.head === "End_turn") return "end";
-  if (c.head === "Strike_melee" || c.head === "Strike_ranged") {
-    return `${c.head}:${c.targetId}:${c.weapon.id}`;
-  }
-  if (c.head === "Cast_cantrip" || c.head === "Cast_spell" || c.head === "Heal_ally") {
-    return `${c.head}:${c.spell.id}:${c.targetId}`;
-  }
-  if (c.head === "Stride_close" || c.head === "Stride_cover" || c.head === "Step_away") {
-    return `${c.head}:${cellId(c.to)}`;
-  }
-  return c.head;
 }
 
 /**

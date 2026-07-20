@@ -3,10 +3,12 @@ import { living } from "../memory/combatMemory.js";
 import type { ActionHead, Position, Spell, Weapon } from "../memory/schemas.js";
 import { cellId } from "../memory/schemas.js";
 import { chebyshev, hasCover } from "../map/grid.js";
-import { findPath } from "../map/pathfind.js";
+import { findApproachWithinBudget, findPath } from "../map/pathfind.js";
 import { occupiedKeys } from "../memory/combatMemory.js";
 import { estimatePHit } from "../rules/pf2e/strike.js";
 import { canCastSpell, estimateSpellScore } from "../rules/pf2e/spell.js";
+import { endsInMelee, flankApproachPos, isFlanking } from "./flank.js";
+import { groupFlags, tacticsGroupOf } from "./tacticsGroups.js";
 
 export type Candidate =
   | { head: "End_turn"; score: number }
@@ -49,18 +51,20 @@ function pickWeapon(actor: CombatantState, kind: "melee" | "ranged"): Weapon | u
   return actor.weapons.find((w) => w.kind === kind);
 }
 
-/** Toward a foe: furthest legal cell along path that is not the foe's square. */
+/** Toward a foe: furthest cell within one Speed along a (possibly longer) path. */
 function towardPos(mem: CombatMemory, actor: CombatantState, foe: CombatantState): Position | null {
   const blocked = occupiedKeys(mem, actor.id);
-  const path = findPath(mem.grid, actor.pos, foe.pos, actor.speedCells, blocked);
-  if (!path.ok || path.path.length < 2) return null;
-  for (let i = path.path.length - 1; i >= 1; i--) {
-    const p = path.path[i]!;
-    if (cellId(p) === cellId(foe.pos)) continue;
-    if (blocked.has(cellId(p))) continue;
-    return p;
-  }
-  return null;
+  const approach = findApproachWithinBudget(
+    mem.grid,
+    actor.pos,
+    foe.pos,
+    actor.speedCells,
+    blocked,
+  );
+  if (!approach.ok) return null;
+  const dest = approach.path[approach.path.length - 1]!;
+  if (cellId(dest) === cellId(actor.pos)) return null;
+  return dest;
 }
 
 function awayPos(mem: CombatMemory, actor: CombatantState, foe: CombatantState): Position | null {
@@ -115,10 +119,21 @@ export function rankCandidates(
   visited: Set<string> = new Set(),
 ): Candidate[] {
   const deltas = activeDeltas(mem, actor.id);
+  const group = tacticsGroupOf(actor);
+  const flags = group.flags;
   const w = actor.aiProfile.weights;
-  const weight = (head: ActionHead) => (w[head] ?? 0) + (deltas[head] ?? 0);
+  const weight = (head: ActionHead) =>
+    ((w[head] ?? 0) + (deltas[head] ?? 0)) * (group.weightMult[head] ?? 1);
 
-  const candidates: Candidate[] = [{ head: "End_turn", score: 0.05 }];
+  const preferCover =
+    (actor.aiProfile.featureBias?.preferCover ?? 0) + (group.featureBias.preferCover ?? 0);
+  const preserve =
+    (actor.aiProfile.featureBias?.selfPreservation ?? 0) +
+    (group.featureBias.selfPreservation ?? 0);
+  const focusCaster =
+    (actor.aiProfile.featureBias?.focusCaster ?? 0) + (group.featureBias.focusCaster ?? 0);
+
+  const candidates: Candidate[] = [{ head: "End_turn", score: flags.aggressive ? 0.02 : 0.08 }];
 
   const foes = living(mem, actor.side === "party" ? "enemy" : "party");
   const allies = [...mem.combatants.values()].filter((c) => c.side === actor.side);
@@ -127,6 +142,7 @@ export function rankCandidates(
   const inMelee =
     !!meleeWeapon &&
     foes.some((f) => chebyshev(actor.pos, f.pos) <= (meleeWeapon.reach ?? 1));
+  const keepRange = flags.keepDistance || flags.preferRanged;
 
   // Spells first so casters prefer them over weapon Strikes
   for (const spell of actor.spells) {
@@ -136,7 +152,7 @@ export function rankCandidates(
         const missing = ally.maxHp - ally.hp;
         if (missing < 4) continue;
         let score = weight("Heal_ally") * Math.min(2, missing / 8) + estimateSpellScore(mem, actor, ally, spell);
-        if (ally.hp / ally.maxHp < 0.4) score += 2;
+        if (ally.hp / ally.maxHp < 0.4) score += flags.healAllies ? 3.2 : 2;
         if (ally.id === actor.id) score -= 0.3;
         candidates.push({ head: "Heal_ally", score, targetId: ally.id, spell });
       }
@@ -148,10 +164,14 @@ export function rankCandidates(
       let score = weight(head) * estimateSpellScore(mem, actor, foe, spell) * 2 + 0.4;
       if (hasCover(mem.grid, foe.pos)) score *= 0.85;
       if (foe.role.toLowerCase().includes("wizard") || foe.role.toLowerCase().includes("shaman")) {
-        score += actor.aiProfile.featureBias?.focusCaster ?? 0;
+        score += focusCaster;
       }
-      // Prefer cantrips; still allow ranked when weight high
       if (spell.rank === 0) score += 0.3;
+      const tag = spell.tactic;
+      if (flags.preferControl && (tag === "control" || tag === "crowd_control")) score += 1.4;
+      if (flags.preferBlast && (tag === "offense" || spell.kind === "attack")) score += 0.7;
+      if (flags.openWithBuffs && (tag === "support" || tag === "heal")) score += 1.1;
+      if (flags.preferControl && tag === "offense") score *= 0.75;
       candidates.push({ head, score, targetId: foe.id, spell });
     }
   }
@@ -162,12 +182,16 @@ export function rankCandidates(
       const pHit = estimatePHit(mem, actor, foe, melee);
       if (pHit > 0) {
         let score = weight("Strike_melee") * pHit * 2 + 0.5;
-        if (inMelee) score += 2.5;
-        if (foe.role.toLowerCase().includes("wizard") || foe.role.toLowerCase().includes("shaman")) {
-          score += actor.aiProfile.featureBias?.focusCaster ?? 0;
+        if (inMelee) score += flags.preferMelee ? 2.8 : 2.0;
+        if (isFlanking(mem, actor, foe, melee.reach ?? 1)) {
+          score += flags.seekFlank ? 2.2 : 0.8;
+        } else if (flags.seekFlank && inMelee) {
+          score *= 0.55;
         }
-        // Casters: don't rush to club people if spells available
-        if (actor.spells.some((s) => s.kind !== "heal")) score *= 0.35;
+        if (foe.role.toLowerCase().includes("wizard") || foe.role.toLowerCase().includes("shaman")) {
+          score += focusCaster;
+        }
+        if (actor.spells.some((s) => s.kind !== "heal") && !flags.preferMelee) score *= 0.35;
         candidates.push({ head: "Strike_melee", score, targetId: foe.id, weapon: melee });
       }
     }
@@ -177,8 +201,11 @@ export function rankCandidates(
       if (pHit > 0) {
         let score = weight("Strike_ranged") * pHit * 2;
         if (hasCover(mem.grid, foe.pos)) score *= 0.7;
-        if (inMelee) score -= 1.0;
-        if (actor.spells.some((s) => s.kind === "attack" || s.kind === "save")) score *= 0.45;
+        if (inMelee) score -= flags.preferMelee ? 0.4 : 1.0;
+        if (flags.preferRanged && !inMelee) score += 0.55;
+        if (flags.preferBlast && actor.spells.some((s) => s.kind === "attack" || s.kind === "save")) {
+          score *= 0.45;
+        }
         candidates.push({ head: "Strike_ranged", score, targetId: foe.id, weapon: ranged });
       }
     }
@@ -198,22 +225,48 @@ export function rankCandidates(
       c.head === "Cast_spell",
   );
 
+  // Flanker: only close when a real flank / sneak cell is reachable.
+  if (flags.seekFlank && !inMelee) {
+    const flank = flankApproachPos(mem, actor);
+    if (flank && canMoveTo(flank.to)) {
+      candidates.push({
+        head: "Stride_close",
+        score: weight("Stride_close") + 2.4,
+        to: flank.to,
+      });
+    }
+  }
+
   if (nearest && !inMelee) {
     const closeTo = towardPos(mem, actor, nearest);
     if (closeTo && canMoveTo(closeTo)) {
       let score = weight("Stride_close");
       if (!hasRangedOption) score += 1.2;
-      else score *= 0.4; // stay put if you can shoot/cast
+      else score *= flags.preferMelee ? 0.7 : 0.4;
       const dist = chebyshev(actor.pos, nearest.pos);
-      score += Math.min(2, dist / 4) * (hasRangedOption ? 0.2 : 1);
+      score += Math.min(2, dist / 4) * (hasRangedOption && !flags.preferMelee ? 0.2 : 1);
+      if (flags.preferMelee && !hasRangedOption) score += 0.8;
+
+      if (keepRange) {
+        if (endsInMelee(mem, actor, closeTo)) score *= 0.08;
+        else if (hasRangedOption) score *= 0.25;
+      }
+      if (flags.seekFlank) score *= 0.12;
+
       candidates.push({ head: "Stride_close", score, to: closeTo });
     }
 
     const cover = coverPos(mem, actor, nearest);
     if (cover && canMoveTo(cover)) {
+      let coverScore = weight("Stride_cover") + preferCover;
+      if (hasRangedOption && keepRange) {
+        const alreadyCover = hasCover(mem.grid, actor.pos);
+        coverScore *= alreadyCover ? 0.12 : 0.35;
+        if (endsInMelee(mem, actor, cover)) coverScore *= 0.1;
+      }
       candidates.push({
         head: "Stride_cover",
-        score: weight("Stride_cover") + (actor.aiProfile.featureBias?.preferCover ?? 0),
+        score: coverScore,
         to: cover,
       });
     }
@@ -221,21 +274,55 @@ export function rankCandidates(
 
   if (nearest) {
     const hpPct = actor.hp / actor.maxHp;
-    const preserve = actor.aiProfile.featureBias?.selfPreservation ?? 0;
-    if (hpPct < 0.4 || preserve >= 0.8) {
+    const dist = chebyshev(actor.pos, nearest.pos);
+    const threatened = inMelee || dist <= 1;
+    const rangedInMelee =
+      inMelee &&
+      (keepRange || (flags.seekFlank && !isFlanking(mem, actor, nearest)));
+    if (hpPct < 0.4 || (preserve >= 0.8 && threatened) || rangedInMelee) {
       const away = awayPos(mem, actor, nearest);
-      if (away && canMoveTo(away) && chebyshev(away, nearest.pos) > chebyshev(actor.pos, nearest.pos)) {
+      if (away && canMoveTo(away) && chebyshev(away, nearest.pos) > dist) {
+        let stepScore =
+          weight("Step_away") + (hpPct < 0.35 ? preserve : preserve * 0.3) - (inMelee ? 0.2 : 0);
+        if (rangedInMelee) stepScore += 1.8;
         candidates.push({
           head: "Step_away",
-          score: weight("Step_away") + (hpPct < 0.35 ? preserve : preserve * 0.3) - (inMelee ? 1.5 : 0),
+          score: stepScore,
           to: away,
         });
       }
     }
   }
 
+  // Round 1: casters / buff groups open with magic, not milling about.
+  const hasCastOption = candidates.some(
+    (c) => c.head === "Cast_cantrip" || c.head === "Cast_spell",
+  );
+  if (mem.round <= 1 && hasCastOption) {
+    for (const c of candidates) {
+      if (c.head === "Cast_cantrip" || c.head === "Cast_spell") {
+        c.score += flags.openWithBuffs || flags.preferBlast || flags.preferControl ? 1.8 : 1.4;
+      } else if (c.head === "Stride_close") c.score *= 0.45;
+      else if (c.head === "Strike_melee") c.score *= flags.preferMelee ? 0.8 : 0.5;
+    }
+  }
+
   candidates.sort((a, b) => b.score - a.score);
   return candidates;
+}
+
+export function candidateKey(c: Candidate): string {
+  if (c.head === "End_turn") return "end";
+  if (c.head === "Strike_melee" || c.head === "Strike_ranged") {
+    return `${c.head}:${c.targetId}:${c.weapon.id}`;
+  }
+  if (c.head === "Cast_cantrip" || c.head === "Cast_spell" || c.head === "Heal_ally") {
+    return `${c.head}:${c.spell.id}:${c.targetId}`;
+  }
+  if (c.head === "Stride_close" || c.head === "Stride_cover" || c.head === "Step_away") {
+    return `${c.head}:${cellId(c.to)}`;
+  }
+  return c.head;
 }
 
 export function pickBest(
@@ -245,4 +332,17 @@ export function pickBest(
 ): Candidate {
   const ranked = rankCandidates(mem, actor, visited);
   return ranked[0] ?? { head: "End_turn", score: 0 };
+}
+
+/** Next-best action excluding keys already vetoed by the tactics agent. */
+export function pickBestExcluding(
+  mem: CombatMemory,
+  actor: CombatantState,
+  visited: Set<string>,
+  rejected: Set<string>,
+): Candidate {
+  for (const c of rankCandidates(mem, actor, visited)) {
+    if (!rejected.has(candidateKey(c))) return c;
+  }
+  return { head: "End_turn", score: 0 };
 }

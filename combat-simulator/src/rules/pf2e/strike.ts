@@ -1,6 +1,8 @@
 import type { CombatantState, CombatMemory } from "../../memory/combatMemory.js";
 import type { Weapon } from "../../memory/schemas.js";
 import { chebyshev, hasCover, hasLineOfSight } from "../../map/grid.js";
+import { isFlanking } from "../../ai/flank.js";
+import { groupFlags } from "../../ai/tacticsGroups.js";
 import { formatDamageRoll, formatDiceExpr, rollDamage } from "./damage.js";
 import type { SeededRng } from "./rng.js";
 
@@ -29,6 +31,9 @@ export function estimatePHit(
   }
   let ac = target.ac;
   if (weapon.kind === "ranged" && hasCover(mem.grid, target.pos)) ac += 2;
+  if (weapon.kind === "melee" && isFlanking(mem, attacker, target, weapon.reach ?? 1)) {
+    ac -= 2; // off-guard from flanking
+  }
   const mod = weapon.attackBonus + mapPenalty(attacker.map);
   const need = ac - mod;
   if (need <= 1) return 0.95;
@@ -78,6 +83,9 @@ export function resolveStrike(
 
   let ac = target.ac;
   if (weapon.kind === "ranged" && hasCover(mem.grid, target.pos)) ac += 2;
+  const flanked =
+    weapon.kind === "melee" && isFlanking(mem, attacker, target, weapon.reach ?? 1);
+  if (flanked) ac -= 2;
 
   const d20 = rng.d20();
   const mod = weapon.attackBonus + mapPenalty(attacker.map);
@@ -94,6 +102,14 @@ export function resolveStrike(
     damageExpr = roll.expr;
     diceRolls = roll.rolls;
     damageBonus = roll.bonus;
+    // Simplified sneak: flanking flanker-group melee adds 1d6 (doubled on crit).
+    if (flanked && groupFlags(attacker).seekFlank) {
+      const sneakRoll = rng.rollDiceDetail(1, 6);
+      const sneakTotal = crit ? sneakRoll.total * 2 : sneakRoll.total;
+      dmg += sneakTotal;
+      diceRolls = [...diceRolls, ...sneakRoll.rolls];
+      damageExpr = `${damageExpr}+${sneakTotal} sneak`;
+    }
     target.hp = Math.max(0, target.hp - dmg);
     target.conditions = target.conditions.filter((c) => c.name !== "asleep");
     if (target.hp <= 0) {

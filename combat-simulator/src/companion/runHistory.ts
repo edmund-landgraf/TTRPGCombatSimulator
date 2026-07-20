@@ -1,5 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  compositionKey,
+  compositionLabel,
+  parseCompositionFromWalkthrough,
+  type RunComposition,
+} from "../runs/composition.js";
 
 export type RunListItem = {
   id: string;
@@ -10,6 +16,15 @@ export type RunListItem = {
   rounds?: number;
   seed?: number;
   source: "disk" | "memory";
+  composition?: RunComposition;
+  containerKey?: string;
+  containerLabel?: string;
+};
+
+export type RunContainer = {
+  key: string;
+  label: string;
+  runs: RunListItem[];
 };
 
 export type RunDetail = RunListItem & {
@@ -32,6 +47,43 @@ function safeJoin(runsDir: string, id: string): string {
   return resolved;
 }
 
+function withContainer(item: Omit<RunListItem, "containerKey" | "containerLabel">): RunListItem {
+  if (!item.composition) {
+    return {
+      ...item,
+      containerKey: `unknown|${item.encounterId}|${item.createdAt.slice(0, 10)}`,
+      containerLabel: `${item.encounterId}, ${new Date(item.createdAt).toLocaleDateString()}`,
+    };
+  }
+  return {
+    ...item,
+    containerKey: compositionKey(item.composition, item.createdAt),
+    containerLabel: compositionLabel(item.composition, item.createdAt),
+  };
+}
+
+function readComposition(
+  dir: string,
+  raw: { composition?: RunComposition },
+): RunComposition | undefined {
+  if (
+    raw.composition &&
+    typeof raw.composition.partyCount === "number" &&
+    typeof raw.composition.enemyLabel === "string" &&
+    typeof raw.composition.gridWidth === "number" &&
+    typeof raw.composition.gridHeight === "number"
+  ) {
+    return raw.composition;
+  }
+  const walkPath = path.join(dir, "walkthrough.md");
+  if (!fs.existsSync(walkPath)) return undefined;
+  try {
+    return parseCompositionFromWalkthrough(fs.readFileSync(walkPath, "utf8")) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function readRunMeta(dir: string, encounterId: string, id: string): RunListItem | null {
   const runPath = path.join(dir, "run.json");
   if (!fs.existsSync(runPath)) return null;
@@ -43,6 +95,7 @@ function readRunMeta(dir: string, encounterId: string, id: string): RunListItem 
       seed?: number;
       outcome?: { winner?: string; rounds?: number; reason?: string };
       notes?: string;
+      composition?: RunComposition;
     };
     const stamp = raw.createdAt ?? raw.runId ?? path.basename(dir);
     const winner = raw.outcome?.winner;
@@ -55,16 +108,18 @@ function readRunMeta(dir: string, encounterId: string, id: string): RunListItem 
     ]
       .filter(Boolean)
       .join(" · ");
-    return {
+    const createdAt = typeof stamp === "string" ? stamp : new Date().toISOString();
+    return withContainer({
       id,
       encounterId: raw.encounterId ?? encounterId,
       label,
-      createdAt: typeof stamp === "string" ? stamp : new Date().toISOString(),
+      createdAt,
       winner,
       rounds,
       seed: raw.seed,
       source: "disk",
-    };
+      composition: readComposition(dir, raw),
+    });
   } catch {
     return null;
   }
@@ -80,6 +135,7 @@ export function registerFinishedRun(opts: {
   output: string;
   winner?: string;
   rounds?: number;
+  composition?: RunComposition;
 }): RunListItem {
   if (opts.runDir) {
     const id = path.relative(opts.runsDir, opts.runDir).replace(/\\/g, "/");
@@ -89,15 +145,20 @@ export function registerFinishedRun(opts: {
 
   const createdAt = new Date().toISOString();
   const id = `memory/${createdAt.replace(/[:.]/g, "-")}_${opts.encounterId}`;
+  const composition =
+    opts.composition ?? parseCompositionFromWalkthrough(opts.output) ?? undefined;
   const mem: MemoryRun = {
-    id,
-    encounterId: opts.encounterId,
-    label: `${opts.encounterName} · ${opts.winner ?? "done"} · r${opts.rounds ?? "?"}`,
-    createdAt,
-    winner: opts.winner,
-    rounds: opts.rounds,
-    seed: opts.seed,
-    source: "memory",
+    ...withContainer({
+      id,
+      encounterId: opts.encounterId,
+      label: `${opts.encounterName} · ${opts.winner ?? "done"} · r${opts.rounds ?? "?"}`,
+      createdAt,
+      winner: opts.winner,
+      rounds: opts.rounds,
+      seed: opts.seed,
+      source: "memory",
+      composition,
+    }),
     walkthrough: opts.output,
   };
   memoryRuns.unshift(mem);
@@ -130,8 +191,7 @@ export function listRuns(runsDir: string, limit = 60): RunListItem[] {
     }
   }
 
-  items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  // Dedupe by id
+  items.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
   const seen = new Set<string>();
   const out: RunListItem[] = [];
   for (const it of items) {
@@ -141,6 +201,35 @@ export function listRuns(runsDir: string, limit = 60): RunListItem[] {
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/** Group runs into expandable containers: roster + grid + calendar day. */
+export function listRunContainers(runsDir: string, limit = 60): RunContainer[] {
+  const runs = listRuns(runsDir, limit);
+  const byKey = new Map<string, RunContainer>();
+
+  for (const run of runs) {
+    const key = run.containerKey ?? `unknown|${run.id}`;
+    const label = run.containerLabel ?? run.encounterId;
+    let container = byKey.get(key);
+    if (!container) {
+      container = { key, label, runs: [] };
+      byKey.set(key, container);
+    }
+    container.runs.push(run);
+  }
+
+  const containers = [...byKey.values()];
+  containers.sort((a, b) => {
+    const aDate = a.runs[0]?.createdAt ?? "";
+    const bDate = b.runs[0]?.createdAt ?? "";
+    if (aDate !== bDate) return aDate < bDate ? -1 : 1;
+    return a.label.localeCompare(b.label);
+  });
+  for (const c of containers) {
+    c.runs.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  }
+  return containers;
 }
 
 export function loadRunDetail(runsDir: string, id: string): RunDetail {

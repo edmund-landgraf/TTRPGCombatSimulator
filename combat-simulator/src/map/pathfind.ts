@@ -102,3 +102,41 @@ export function moveAlongPath(path: Position[], budget: number): Position {
   const idx = Math.min(budget, path.length - 1);
   return path[idx]!;
 }
+
+/**
+ * Approach a (possibly distant) goal: pathfind with a large search budget, then
+ * return the furthest free cell along that path reachable within `moveBudget`.
+ * Does not land on `goal` when it is blocked (typical foe square).
+ */
+export function findApproachWithinBudget(
+  grid: Grid,
+  from: Position,
+  goal: Position,
+  moveBudget: number,
+  blocked: Set<string>,
+): PathResult {
+  const maxSearch = Math.max(moveBudget * 8, grid.width + grid.height, 32);
+  const full = findPath(grid, from, goal, maxSearch, blocked);
+  if (!full.ok) return full;
+  if (full.path.length < 2) {
+    return { ok: false, reason: "already at goal" };
+  }
+
+  const goalKey = cellId(goal);
+  let best: Position | null = null;
+  let bestCost = 0;
+  for (let i = 1; i < full.path.length; i++) {
+    const p = full.path[i]!;
+    const key = cellId(p);
+    if (key === goalKey) break;
+    if (blocked.has(key)) break;
+    const reach = findPath(grid, from, p, moveBudget, blocked);
+    if (!reach.ok) break;
+    best = p;
+    bestCost = reach.cost;
+  }
+  if (!best) {
+    return { ok: false, reason: `no approach cell within ${moveBudget} toward ${goalKey}` };
+  }
+  return { ok: true, path: [from, best], cost: bestCost };
+}

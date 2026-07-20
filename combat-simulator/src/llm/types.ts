@@ -1,5 +1,5 @@
 export type LlmCompleteRequest = {
-  purpose: "narrate" | "director_orders" | "actor_plan";
+  purpose: "narrate" | "director_orders" | "actor_plan" | "tactics_review";
   system: string;
   user: string;
   jsonMode?: boolean;

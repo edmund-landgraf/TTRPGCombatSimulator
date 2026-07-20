@@ -12,6 +12,29 @@ export type ChatMessage = {
   at: string;
 };
 
+export type BoardCell = {
+  x: number;
+  y: number;
+  tags: string[];
+};
+
+export type BoardToken = {
+  id: string;
+  name: string;
+  side: "party" | "enemy";
+  tokenChar: string;
+  x: number;
+  y: number;
+  downed: boolean;
+};
+
+export type BoardSnapshot = {
+  width: number;
+  height: number;
+  cells: BoardCell[];
+  tokens: BoardToken[];
+};
+
 export type CombatantSnapshot = {
   id: string;
   name: string;
@@ -20,6 +43,9 @@ export type CombatantSnapshot = {
   maxHp: number;
   ac: number;
   pos: string;
+  x: number;
+  y: number;
+  tokenChar: string;
   downed: boolean;
   conditions: string[];
   weapons: string[];
@@ -32,6 +58,7 @@ export type RoundSnapshot = {
   round: number;
   statusText: string;
   mapText: string;
+  board: BoardSnapshot;
   summaryText: string;
   actionLog: string;
 };
@@ -42,19 +69,54 @@ export type CombatContext = {
   encounterId: string;
   seed: number;
   round: number;
-  phase: "active" | "waiting" | "ended";
+  phase: "active" | "waiting" | "ended" | "deploy";
   endReason?: string;
   winner?: string;
   initiative: string[];
   statusText: string;
   mapText: string;
+  board: BoardSnapshot;
   recentLog: string;
   summaryText?: string;
   combatants: CombatantSnapshot[];
-  /** True when the sim is paused after a round; UI should show Enter to continue. */
+  /** True when the sim is paused (deploy, between rounds, or between turns); UI shows Enter to continue. */
   waitingForAdvance: boolean;
+  /** Why the sim is paused — drives Next turn vs Next round button copy. */
+  pauseKind?: "deploy" | "round" | "turn";
+  /** Token drag allowed during deploy and between-round/turn pauses. */
+  canMoveTokens?: boolean;
   rounds: RoundSnapshot[];
 };
+
+/** Reconstruct full grid (including walls) for the companion UI. */
+export function buildBoard(mem: CombatMemory): BoardSnapshot {
+  const { width, height, walkable } = mem.grid;
+  const cells: BoardCell[] = [];
+  for (let y = 1; y <= height; y++) {
+    for (let x = 1; x <= width; x++) {
+      const w = walkable.get(cellId({ x, y }));
+      cells.push({
+        x,
+        y,
+        tags: w ? [...w.tags] : ["blocking"],
+      });
+    }
+  }
+  const tokens: BoardToken[] = [...mem.combatants.values()].map((c) => ({
+    id: c.id,
+    name: c.name,
+    side: c.side,
+    tokenChar: c.tokenChar,
+    x: c.pos.x,
+    y: c.pos.y,
+    downed: c.downed,
+  }));
+  return { width, height, cells, tokens };
+}
+
+export function emptyBoard(): BoardSnapshot {
+  return { width: 0, height: 0, cells: [], tokens: [] };
+}
 
 /** Live session shared by the sim loop and the companion HTTP server. */
 export class CompanionSession {
@@ -63,6 +125,8 @@ export class CompanionSession {
   logLines: string[] = [];
   rounds: RoundSnapshot[] = [];
   waitingForAdvance = false;
+  /** Active memory while a run is in flight (for deploy-time token moves). */
+  liveMemory: CombatMemory | null = null;
 
   private advanceWaiters: Array<{
     resolve: (result: "advanced" | "cancelled") => void;
@@ -74,6 +138,7 @@ export class CompanionSession {
     this.logLines = [];
     this.rounds = [];
     this.waitingForAdvance = false;
+    this.liveMemory = null;
     this.cancelWaiters();
   }
 
@@ -83,6 +148,7 @@ export class CompanionSession {
     this.logLines = [];
     this.rounds = [];
     this.waitingForAdvance = false;
+    this.liveMemory = null;
     this.cancelWaiters();
   }
 
@@ -96,7 +162,7 @@ export class CompanionSession {
     this.resolveWaiters("cancelled");
   }
 
-  /** Called by the UI (Enter / button) to continue to the next round. */
+  /** Called by the UI (Enter / button) to continue deploy → R1, next turn, or next round. */
   advance(): boolean {
     if (!this.waitingForAdvance) return false;
     this.waitingForAdvance = false;
@@ -105,6 +171,8 @@ export class CompanionSession {
       this.context = {
         ...this.context,
         waitingForAdvance: false,
+        pauseKind: undefined,
+        canMoveTokens: false,
         phase: this.context.phase === "ended" ? "ended" : "active",
         updatedAt: new Date().toISOString(),
       };
@@ -116,19 +184,72 @@ export class CompanionSession {
    * Block the sim until the UI advances.
    * Resolves `"cancelled"` if combat is cleared/reset — callers must stop the encounter.
    */
-  waitForAdvance(): Promise<"advanced" | "cancelled"> {
+  waitForAdvance(
+    phase: "waiting" | "deploy" = "waiting",
+    opts?: { pauseKind?: "deploy" | "round" | "turn" },
+  ): Promise<"advanced" | "cancelled"> {
     this.waitingForAdvance = true;
+    const pauseKind = opts?.pauseKind ?? (phase === "deploy" ? "deploy" : "round");
     if (this.context) {
+      const mem = this.liveMemory;
       this.context = {
         ...this.context,
         waitingForAdvance: true,
-        phase: "waiting",
+        pauseKind,
+        phase,
+        canMoveTokens: true,
+        // Show live positions / HP while paused (especially between turns).
+        board: mem ? buildBoard(mem) : this.context.board,
+        mapText: mem ? formatAsciiBoard(mem) : this.context.mapText,
+        statusText:
+          phase === "deploy"
+            ? "--- Deploy — drag tokens, then Start Round 1 ---"
+            : mem
+              ? formatStatusRoster(mem)
+              : this.context.statusText,
         updatedAt: new Date().toISOString(),
       };
     }
     return new Promise((resolve) => {
       this.advanceWaiters.push({ resolve });
     });
+  }
+
+  /** Free placement while paused (deploy, between rounds, or between turns). Walkable + unoccupied only. */
+  moveLiveToken(id: string, x: number, y: number): void {
+    const phase = this.context?.phase;
+    if (
+      !this.context?.canMoveTokens ||
+      (phase !== "deploy" && phase !== "waiting")
+    ) {
+      throw new Error("Tokens can only be moved during deploy or while combat is paused");
+    }
+    const mem = this.liveMemory;
+    if (!mem) throw new Error("No live combat to move tokens in");
+    const actor = mem.combatants.get(id);
+    if (!actor) throw new Error(`Unknown combatant ${id}`);
+    if (actor.downed) throw new Error(`${id} is downed`);
+    const key = cellId({ x, y });
+    if (!mem.grid.walkable.has(key)) throw new Error(`Cell ${key} is not walkable`);
+    for (const c of mem.combatants.values()) {
+      if (c.id !== id && !c.downed && cellId(c.pos) === key) {
+        throw new Error(`Cell ${key} is occupied`);
+      }
+    }
+    actor.pos = { x, y };
+    const pauseKind = this.context.pauseKind;
+    this.publishFromMemory(mem, { phase, pauseKind });
+    if (this.context) {
+      this.context = {
+        ...this.context,
+        waitingForAdvance: true,
+        pauseKind,
+        phase,
+        canMoveTokens: true,
+        board: buildBoard(mem),
+        mapText: formatAsciiBoard(mem),
+      };
+    }
   }
 
   appendLog(lines: string[]): void {
@@ -143,6 +264,7 @@ export class CompanionSession {
       round: mem.round,
       statusText: formatStatusRoster(mem),
       mapText: formatAsciiBoard(mem),
+      board: buildBoard(mem),
       summaryText: formatRoundSummary(mem),
       actionLog,
     };
@@ -153,12 +275,14 @@ export class CompanionSession {
   publishFromMemory(
     mem: CombatMemory,
     opts?: {
-      phase?: "active" | "waiting" | "ended";
+      phase?: "active" | "waiting" | "ended" | "deploy";
       endReason?: string;
       winner?: string;
       actionLog?: string;
+      pauseKind?: "deploy" | "round" | "turn";
     },
   ): void {
+    this.liveMemory = mem;
     const combatants: CombatantSnapshot[] = [...mem.combatants.values()].map((c) => ({
       id: c.id,
       name: c.name,
@@ -167,6 +291,9 @@ export class CompanionSession {
       maxHp: c.maxHp,
       ac: c.ac,
       pos: cellId(c.pos),
+      x: c.pos.x,
+      y: c.pos.y,
+      tokenChar: c.tokenChar,
       downed: c.downed,
       conditions: c.conditions.map((x) => x.name),
       weapons: c.weapons.map((w) => w.id),
@@ -180,23 +307,51 @@ export class CompanionSession {
         }),
     }));
 
+    const phase =
+      opts?.phase ??
+      (this.waitingForAdvance ? "waiting" : "active");
     const latest = this.rounds[this.rounds.length - 1];
+    const canMoveTokens = phase === "deploy" || phase === "waiting";
+    // Sticky theater map always tracks live positions (turn pauses + mid-round resolves).
+    // Per-round cards keep their own snapshots via recordRound.
+    const board = buildBoard(mem);
+    const mapText = formatAsciiBoard(mem);
+    const liveStatus = formatStatusRoster(mem);
+    const liveSummary = formatRoundSummary(mem);
+    const pauseKind =
+      opts?.pauseKind ??
+      (this.waitingForAdvance
+        ? (this.context?.pauseKind ?? (phase === "deploy" ? "deploy" : "round"))
+        : undefined);
     this.context = {
       updatedAt: new Date().toISOString(),
       encounterName: mem.name,
       encounterId: mem.encounterId,
       seed: mem.seed,
       round: mem.round,
-      phase: opts?.phase ?? (this.waitingForAdvance ? "waiting" : "active"),
+      phase,
       endReason: opts?.endReason,
       winner: opts?.winner,
       initiative: [...mem.initiative],
-      statusText: latest?.statusText ?? formatStatusRoster(mem),
-      mapText: latest?.mapText ?? formatAsciiBoard(mem),
-      summaryText: latest?.summaryText ?? formatRoundSummary(mem),
+      statusText:
+        phase === "deploy"
+          ? "--- Deploy — drag tokens, then Start Round 1 ---"
+          : canMoveTokens || phase === "active"
+            ? liveStatus
+            : latest?.statusText ?? liveStatus,
+      mapText,
+      board,
+      summaryText:
+        phase === "deploy"
+          ? "Party south / enemies north by default. Drag tokens to adjust before Round 1."
+          : canMoveTokens || phase === "active"
+            ? liveSummary
+            : latest?.summaryText ?? liveSummary,
       recentLog: opts?.actionLog ?? latest?.actionLog ?? this.logLines.slice(-80).join("\n"),
       combatants,
       waitingForAdvance: this.waitingForAdvance,
+      pauseKind: this.waitingForAdvance ? pauseKind : undefined,
+      canMoveTokens,
       rounds: [...this.rounds],
     };
   }
@@ -222,10 +377,27 @@ export function describeCombatState(
       "The fight is over. Discuss what already happened; do not plan the next round as if combat continues.",
     ].join("\n");
   }
+  if (ctx.phase === "deploy") {
+    return [
+      "COMBAT STATE: DEPLOY (BEFORE ROUND 1)",
+      "Initiative is rolled; tokens can still be moved. Combat has not started.",
+      "User may drag tokens, then press Enter / Start Round 1.",
+    ].join("\n");
+  }
   if (ctx.waitingForAdvance || ctx.phase === "waiting") {
+    if (ctx.pauseKind === "turn") {
+      return [
+        "COMBAT STATE: PAUSED BETWEEN TURNS",
+        `Round ${ctx.round} is in progress. One combatant's turn just finished; the sim waits for Enter before the next initiative turn.`,
+        "Map and status below are live (after the turn that just resolved).",
+        "Tokens may be dragged on the battle map during this pause (free placement on walkable cells).",
+        "Do not invent the next turn's actions unless asked hypothetically.",
+      ].join("\n");
+    }
     return [
       "COMBAT STATE: PAUSED BETWEEN ROUNDS",
       `Round ${ctx.round} has fully finished. The sim is waiting for the GM/user to press Enter before Round ${ctx.round + 1}.`,
+      "Tokens may be dragged on the battle map during this pause (free placement on walkable cells).",
       "Side chat during this pause is the normal time to ask tactics. Treat actions in the Round log below as already spent for this round (e.g. if the cleric cast Heal, that use is gone).",
       "Do not invent actions for the next round unless asked hypothetically.",
     ].join("\n");

@@ -5,6 +5,8 @@ dist/
 
 # Sim outputs (large / regenerated)
 **/runs/
+**/logs/tactics/*
+!**/logs/tactics/.gitkeep
 *.log
 
 # Env / secrets

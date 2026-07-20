@@ -12,8 +12,9 @@ import {
 import { OllamaProvider } from "../llm/ollama.js";
 import { runEncounter } from "../orch/loop.js";
 import { answerCompanionChat } from "./chat.js";
-import { listRuns, loadRunDetail, registerFinishedRun } from "./runHistory.js";
-import { companionSession } from "./session.js";
+import { listRunContainers, listRuns, loadRunDetail, registerFinishedRun } from "./runHistory.js";
+import { compositionFromSides } from "../runs/composition.js";
+import { companionSession, emptyBoard } from "./session.js";
 import { seedClassicStudio } from "./seedClassic.js";
 import {
   applyAutoPlacement,
@@ -21,10 +22,13 @@ import {
   createStudioState,
   generateAsciiSquareMap,
   importCombatantsJson,
+  moveStudioToken,
   setMapFromImageGrid,
+  setStudioTacticsGroup,
   studioState,
   studioSummary,
 } from "./studio.js";
+import { isTacticsGroupId, type TacticsGroupId } from "../ai/tacticsGroups.js";
 
 function runsDir(): string {
   return runHooks.runsDir ?? path.join(process.cwd(), "runs");
@@ -49,6 +53,55 @@ export type StudioRunHooks = {
   save?: boolean;
   onQueued?: () => void;
 };
+
+export type StudioSettings = {
+  /** Persist dual-commander decision trees under logs/tactics/. */
+  saveTacticsLogs: boolean;
+  /** Pause after each full round until Enter (includes pre-round deploy when any pause is on). */
+  pauseEachRound: boolean;
+  /** Pause after each PC/enemy turn until Enter; sticky map updates live each pause. */
+  pauseEachTurn: boolean;
+};
+
+const DEFAULT_SETTINGS: StudioSettings = {
+  saveTacticsLogs: true,
+  pauseEachRound: true,
+  pauseEachTurn: false,
+};
+
+const SETTINGS_FILE = path.join(process.cwd(), "logs", "tactics", ".settings.json");
+
+function loadStudioSettings(): StudioSettings {
+  try {
+    if (fs.existsSync(SETTINGS_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")) as Partial<StudioSettings>;
+      return {
+        saveTacticsLogs:
+          typeof raw.saveTacticsLogs === "boolean"
+            ? raw.saveTacticsLogs
+            : DEFAULT_SETTINGS.saveTacticsLogs,
+        pauseEachRound:
+          typeof raw.pauseEachRound === "boolean"
+            ? raw.pauseEachRound
+            : DEFAULT_SETTINGS.pauseEachRound,
+        pauseEachTurn:
+          typeof raw.pauseEachTurn === "boolean"
+            ? raw.pauseEachTurn
+            : DEFAULT_SETTINGS.pauseEachTurn,
+      };
+    }
+  } catch {
+    /* use defaults */
+  }
+  return { ...DEFAULT_SETTINGS };
+}
+
+function persistStudioSettings(settings: StudioSettings): void {
+  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2) + "\n");
+}
+
+let studioSettings: StudioSettings = loadStudioSettings();
 
 let runHooks: StudioRunHooks = {};
 let runInFlight = false;
@@ -211,6 +264,32 @@ async function handleStudioApi(
     return true;
   }
 
+  if (req.method === "GET" && pathname === "/api/settings") {
+    json(res, 200, studioSettings);
+    return true;
+  }
+
+  if (req.method === "POST" && pathname === "/api/settings") {
+    try {
+      const body = JSON.parse(await readBody(req)) as Partial<StudioSettings>;
+      if (typeof body.saveTacticsLogs === "boolean") {
+        studioSettings.saveTacticsLogs = body.saveTacticsLogs;
+      }
+      if (typeof body.pauseEachRound === "boolean") {
+        studioSettings.pauseEachRound = body.pauseEachRound;
+      }
+      if (typeof body.pauseEachTurn === "boolean") {
+        studioSettings.pauseEachTurn = body.pauseEachTurn;
+      }
+      persistStudioSettings(studioSettings);
+      json(res, 200, studioSettings);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      json(res, 400, { error: msg });
+    }
+    return true;
+  }
+
   if (req.method === "POST" && pathname === "/api/studio/run") {
     if (runInFlight) {
       json(res, 409, { error: "A combat run is already in progress" });
@@ -237,17 +316,31 @@ async function handleStudioApi(
             const ok = await ollama.healthCheck();
             if (ok) llm = ollama;
           }
+          console.error(
+            `[studio] saveTacticsLogs=${studioSettings.saveTacticsLogs} pauseEachRound=${studioSettings.pauseEachRound} pauseEachTurn=${studioSettings.pauseEachTurn} saveRuns=${runHooks.save !== false}`,
+          );
           const result = await runEncounter(fixture, {
             seed: runHooks.seed ?? 42,
             save: runHooks.save !== false,
+            saveTacticsLogs: studioSettings.saveTacticsLogs,
             maxRounds: runHooks.maxRounds ?? 20,
             runsDir: runsDir(),
             narrative: runHooks.narrative,
             llm,
             companion: companionSession,
-            pauseEachRound: true,
+            pauseEachRound: studioSettings.pauseEachRound,
+            pauseEachTurn: studioSettings.pauseEachTurn,
           });
+          if (result.tacticsLogPath) {
+            console.error(`[studio] Tactics log: ${result.tacticsLogPath}`);
+          } else if (studioSettings.saveTacticsLogs) {
+            console.error("[studio] Tactics log setting is on, but no file was written.");
+          } else {
+            console.error("[studio] Tactics log skipped (Settings → Save tactical logs? is off).");
+          }
           const end = [...result.mem.events].reverse().find((e) => e.t === "combat_end");
+          const party = [...result.mem.combatants.values()].filter((c) => c.side === "party");
+          const enemies = [...result.mem.combatants.values()].filter((c) => c.side === "enemy");
           registerFinishedRun({
             runDir: result.runDir,
             runsDir: runsDir(),
@@ -257,6 +350,12 @@ async function handleStudioApi(
             output: result.output,
             winner: end && end.t === "combat_end" ? end.winner : undefined,
             rounds: result.mem.round,
+            composition: compositionFromSides(
+              party.map((c) => c.name),
+              enemies.map((c) => c.name),
+              result.mem.grid.width,
+              result.mem.grid.height,
+            ),
           });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -271,6 +370,7 @@ async function handleStudioApi(
             initiative: [],
             statusText: `Run failed: ${msg}`,
             mapText: "",
+            board: emptyBoard(),
             recentLog: msg,
             combatants: [],
             waitingForAdvance: false,
@@ -290,7 +390,8 @@ async function handleStudioApi(
   }
 
   if (req.method === "GET" && pathname === "/api/runs") {
-    json(res, 200, { runs: listRuns(runsDir()) });
+    const dir = runsDir();
+    json(res, 200, { runs: listRuns(dir), containers: listRunContainers(dir) });
     return true;
   }
 
@@ -320,13 +421,105 @@ async function handleStudioApi(
   }
 
   if (req.method === "POST" && pathname === "/api/combat/advance") {
+    const wasDeploy = companionSession.context?.phase === "deploy";
     const ok = companionSession.advance();
     json(res, ok ? 200 : 409, {
       ok,
-      message: ok ? "Advancing to next round" : "Combat is not waiting for advance",
+      message: ok
+        ? wasDeploy
+          ? "Starting Round 1"
+          : "Advancing to next round"
+        : "Combat is not waiting for advance",
       waitingForAdvance: companionSession.waitingForAdvance,
       context: companionSession.context,
     });
+    return true;
+  }
+
+  if (req.method === "POST" && pathname === "/api/studio/move-token") {
+    try {
+      const body = JSON.parse((await readBody(req)) || "{}") as {
+        id?: string;
+        x?: number;
+        y?: number;
+      };
+      if (!body.id || body.x == null || body.y == null) {
+        json(res, 400, { error: "id, x, y required" });
+        return true;
+      }
+      moveStudioToken(studioState, body.id, Number(body.x), Number(body.y));
+      // keep encounter; moveStudioToken syncs starts when built
+      studioState.lastError = undefined;
+      json(res, 200, { ok: true, ...studioSummary(studioState) });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      json(res, 400, { error: msg, ...studioSummary(studioState) });
+    }
+    return true;
+  }
+
+  if (req.method === "POST" && pathname === "/api/studio/set-tactics-group") {
+    try {
+      const body = JSON.parse((await readBody(req)) || "{}") as {
+        id?: string;
+        tacticsGroup?: string;
+        tacticsSecondary?: string | null;
+      };
+      if (!body.id || !isTacticsGroupId(body.tacticsGroup)) {
+        json(res, 400, { error: "id and valid tacticsGroup required" });
+        return true;
+      }
+      let secondary: TacticsGroupId | null = null;
+      if (
+        body.tacticsSecondary != null &&
+        body.tacticsSecondary !== "" &&
+        body.tacticsSecondary !== "none"
+      ) {
+        if (!isTacticsGroupId(body.tacticsSecondary)) {
+          json(res, 400, { error: "tacticsSecondary must be a valid group or none" });
+          return true;
+        }
+        secondary = body.tacticsSecondary;
+      }
+      setStudioTacticsGroup(studioState, body.id, body.tacticsGroup, secondary);
+      studioState.lastError = undefined;
+      json(res, 200, { ok: true, ...studioSummary(studioState) });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      json(res, 400, { error: msg, ...studioSummary(studioState) });
+    }
+    return true;
+  }
+
+  if (req.method === "POST" && pathname === "/api/combat/move-token") {
+    try {
+      const body = JSON.parse((await readBody(req)) || "{}") as {
+        id?: string;
+        x?: number;
+        y?: number;
+      };
+      if (!body.id || body.x == null || body.y == null) {
+        json(res, 400, { error: "id, x, y required" });
+        return true;
+      }
+      const x = Number(body.x);
+      const y = Number(body.y);
+      companionSession.moveLiveToken(body.id, x, y);
+      // Mirror into studio so a re-run keeps the deploy.
+      try {
+        moveStudioToken(studioState, body.id, x, y);
+      } catch {
+        /* studio may not have this id during a non-studio run */
+      }
+      json(res, 200, {
+        ok: true,
+        context: companionSession.context,
+        ...studioSummary(studioState),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      json(res, 400, { error: msg, context: companionSession.context });
+    }
     return true;
   }
 

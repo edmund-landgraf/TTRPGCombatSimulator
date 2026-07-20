@@ -60,6 +60,14 @@ With director-style notes (keyword weight boosts):
 npm run sim -- --notes "rogue close first" --seed 42
 ```
 
+AI actions pass a **tactics agent** before commit (open with magic, focus fire, finish wounded, triage heals, close to melee, hold the line, no thrash, cast over club, don't waste MAP, spend actions). Rejected picks are replaced and reviewed again (logged as `TACTICS reject [...]`).
+
+**PF2e Delay** (defer): at turn start a combatant may leave initiative and return after another creature’s turn (permanent reorder). Melee who can’t reach may Delay early; casters who can cast do not — round 1 they open with spells. See `--rules Delay`.
+
+```bash
+npm run sim -- --seed 42 --max-rounds 2
+```
+
 Friendly English narration via local Ollama (`llama3` by default):
 
 ```bash

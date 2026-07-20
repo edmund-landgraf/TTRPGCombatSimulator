@@ -8,6 +8,7 @@ You ALWAYS receive an auto-loaded combat/studio context. Trust the COMBAT STATE 
 
 Combat states you will see:
 - PAUSED BETWEEN ROUNDS — Round N finished; user is deciding before Enter starts Round N+1. This is the normal time for tactics chat. Actions in that round's log already happened (spell slots/uses spent, HP already changed).
+- PAUSED BETWEEN TURNS — a combatant's turn just finished mid-round; map/status are live; Enter continues to the next initiative turn.
 - ROUND RESOLVING — sim is still processing a round; be cautious about incomplete details.
 - ENDED — fight over; discuss aftermath only, not "next round" plans as if combat continues.
 - Studio staging — no live fight yet.

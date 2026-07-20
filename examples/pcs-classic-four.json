@@ -31,6 +31,7 @@
         "Stride_close": 1.2,
         "Stride_cover": 0.3,
         "Step_away": 0.2,
+        "Delay": 0.7,
         "End_turn": 0.1
       },
       "featureBias": {
@@ -127,9 +128,10 @@
         "Cast_spell": 1.2,
         "Strike_melee": 0.05,
         "Strike_ranged": 0.2,
-        "Stride_close": 0.15,
+        "Stride_close": 0.9,
         "Stride_cover": 0.9,
         "Step_away": 1,
+        "Delay": 0.05,
         "End_turn": 0.2
       },
       "featureBias": {

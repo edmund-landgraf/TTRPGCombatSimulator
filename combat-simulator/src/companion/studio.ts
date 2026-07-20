@@ -5,11 +5,14 @@ import {
   EncounterFixtureSchema,
   MapCellSchema,
   SpellSchema,
+  TacticsGroupIdSchema,
   WeaponSchema,
   type CombatantFixture,
   type EncounterFixture,
   type MapCell,
+  type TacticsGroupId,
 } from "../memory/schemas.js";
+import { defaultTacticsGroupForRole, listTacticsGroups } from "../ai/tacticsGroups.js";
 import { buildClassicFourCells } from "../map/buildClassicMap.js";
 import { buildOpenSquareCells, clampMapSize } from "../map/buildOpenSquareMap.js";
 
@@ -29,6 +32,8 @@ const ImportCombatantSchema = z.object({
   weapons: z.array(WeaponSchema).min(1),
   spells: z.array(SpellSchema).optional(),
   aiProfile: AiProfileSchema.optional(),
+  tacticsGroup: TacticsGroupIdSchema.optional(),
+  tacticsSecondary: TacticsGroupIdSchema.optional(),
 });
 
 export type StudioMap = {
@@ -59,6 +64,7 @@ const defaultAi = (side: "party" | "enemy"): z.infer<typeof AiProfileSchema> => 
     Stride_close: 1.0,
     Stride_cover: 0.5,
     Step_away: 0.4,
+    Delay: 0.35,
     End_turn: 0.1,
   },
   featureBias: { selfPreservation: 0.4 },
@@ -154,8 +160,8 @@ function placeBlock(
 }
 
 /**
- * Party south, enemies north — tight blocks (4 PCs = 2×2 XX/XX).
- * Party: high AC/tough in front (toward foes), frail in back.
+ * Party on the south edge, enemies on the north edge (opposite ends of the square).
+ * Tight blocks (4 PCs = 2×2 XX/XX): tough front toward midfield, frail in back.
  */
 export function autoPlaceSides(
   pcs: CombatantFixture[],
@@ -164,17 +170,18 @@ export function autoPlaceSides(
 ): { pcs: CombatantFixture[]; enemies: CombatantFixture[] } {
   const { min, maxX, maxY } = walkableBounds(map);
   const depth = maxY - min + 1;
-  const twoRanks = depth >= 5;
+  const twoRanks = depth >= 6;
 
   const partySorted = [...pcs].sort((a, b) => toughness(b) - toughness(a));
   const enemySorted = [...enemies].sort((a, b) => toughness(b) - toughness(a));
 
+  // Keep a clear midfield: party hugs south wall, enemies hug north wall.
   const placedPcs = placeBlock(partySorted, {
     minX: min,
     maxX,
     minY: min,
     maxY,
-    // Front toward enemies (north): one row in from the south edge when 2 ranks fit
+    // Front rank one step north of the south wall; back rank on the wall
     frontY: twoRanks && partySorted.length > 1 ? maxY - 1 : maxY,
     backDir: 1,
   });
@@ -184,7 +191,7 @@ export function autoPlaceSides(
     maxX,
     minY: min,
     maxY,
-    // Front toward party (south)
+    // Front rank one step south of the north wall; back rank on the wall
     frontY: twoRanks && enemySorted.length > 1 ? min + 1 : min,
     backDir: -1,
   });
@@ -236,10 +243,11 @@ export function importCombatantsJson(
     const token =
       parsed.tokenChar ??
       (side === "party" ? (parsed.name[0] ?? "P").toUpperCase() : (parsed.name[0] ?? "E").toLowerCase());
+    const role = parsed.role ?? parsed.name.toLowerCase();
     const fixture = CombatantFixtureSchema.parse({
       ...parsed,
       side,
-      role: parsed.role ?? parsed.name.toLowerCase(),
+      role,
       tokenChar: token.slice(0, 1),
       level: parsed.level ?? 1,
       perceptionBonus: parsed.perceptionBonus ?? 2,
@@ -248,10 +256,40 @@ export function importCombatantsJson(
       start: parsed.start ?? { x: 2, y: side === "party" ? map.height - 1 : 2 },
       spells: parsed.spells ?? [],
       aiProfile: parsed.aiProfile ?? defaultAi(side),
+      tacticsGroup: parsed.tacticsGroup ?? defaultTacticsGroupForRole(role),
+      tacticsSecondary: parsed.tacticsSecondary,
     });
     out.push(fixture);
   }
   return out;
+}
+
+/** Assign primary / optional secondary tactics groups to a studio PC/enemy. */
+export function setStudioTacticsGroup(
+  state: StudioState,
+  id: string,
+  tacticsGroup: TacticsGroupId,
+  tacticsSecondary?: TacticsGroupId | null,
+): void {
+  const unit =
+    state.pcs.find((c) => c.id === id) ?? state.enemies.find((c) => c.id === id);
+  if (!unit) throw new Error(`Unknown combatant ${id}`);
+  unit.tacticsGroup = tacticsGroup;
+  if (tacticsSecondary === null || tacticsSecondary === undefined) {
+    delete unit.tacticsSecondary;
+  } else if (tacticsSecondary === tacticsGroup) {
+    delete unit.tacticsSecondary;
+  } else {
+    unit.tacticsSecondary = tacticsSecondary;
+  }
+  if (state.encounter) {
+    const ec = state.encounter.combatants.find((c) => c.id === id);
+    if (ec) {
+      ec.tacticsGroup = unit.tacticsGroup;
+      if (unit.tacticsSecondary) ec.tacticsSecondary = unit.tacticsSecondary;
+      else delete ec.tacticsSecondary;
+    }
+  }
 }
 
 /** Re-seat both sides using formation rules on the current map. */
@@ -342,19 +380,85 @@ export function setMapFromImageGrid(
   return map;
 }
 
+function isWalkableCell(state: StudioState, x: number, y: number): boolean {
+  const cell = state.map.cells.find((c) => c.x === x && c.y === y);
+  if (!cell) return false;
+  return !cell.tags.includes("blocking");
+}
+
+/** Move a studio token before combat (Setup / deploy). Rejects walls & occupied cells. */
+export function moveStudioToken(
+  state: StudioState,
+  id: string,
+  x: number,
+  y: number,
+): void {
+  const unit =
+    state.pcs.find((c) => c.id === id) ?? state.enemies.find((c) => c.id === id);
+  if (!unit) throw new Error(`Unknown combatant ${id}`);
+  if (!isWalkableCell(state, x, y)) throw new Error(`Cell x${x}y${y} is not walkable`);
+  const occupied = [...state.pcs, ...state.enemies].some(
+    (c) => c.id !== id && c.start.x === x && c.start.y === y,
+  );
+  if (occupied) throw new Error(`Cell x${x}y${y} is occupied`);
+  unit.start = { x, y };
+  // Keep built encounter starts in sync if present.
+  if (state.encounter) {
+    const ec = state.encounter.combatants.find((c) => c.id === id);
+    if (ec) ec.start = { x, y };
+  }
+}
+
+/** Board snapshot for Setup preview / legend (same shape as combat board). */
+export function studioBoard(state: StudioState): {
+  width: number;
+  height: number;
+  cells: { x: number; y: number; tags: string[] }[];
+  tokens: {
+    id: string;
+    name: string;
+    side: "party" | "enemy";
+    tokenChar: string;
+    x: number;
+    y: number;
+    downed: boolean;
+  }[];
+} {
+  const { width, height, cells } = state.map;
+  const by = new Map(cells.map((c) => [`${c.x},${c.y}`, c]));
+  const outCells: { x: number; y: number; tags: string[] }[] = [];
+  for (let y = 1; y <= height; y++) {
+    for (let x = 1; x <= width; x++) {
+      const cell = by.get(`${x},${y}`);
+      outCells.push({ x, y, tags: cell ? [...cell.tags] : ["blocking"] });
+    }
+  }
+  const tokens = [...state.pcs, ...state.enemies].map((c) => ({
+    id: c.id,
+    name: c.name,
+    side: c.side,
+    tokenChar: c.tokenChar,
+    x: c.start.x,
+    y: c.start.y,
+    downed: false,
+  }));
+  return { width, height, cells: outCells, tokens };
+}
+
 export function buildEncounterFromStudio(state: StudioState): EncounterFixture {
   if (state.pcs.length === 0) throw new Error("Import at least one PC JSON");
   if (state.enemies.length === 0) throw new Error("Import at least one enemy JSON");
 
-  applyAutoPlacement(state);
-
-  const clamp = (c: CombatantFixture): CombatantFixture => ({
-    ...c,
-    start: {
-      x: Math.min(state.map.width - 1, Math.max(1, c.start.x)),
-      y: Math.min(state.map.height - 1, Math.max(1, c.start.y)),
-    },
-  });
+  // Do not re-auto-place — preserves Setup / deploy token moves.
+  const clamp = (c: CombatantFixture): CombatantFixture => {
+    let { x, y } = c.start;
+    x = Math.min(state.map.width, Math.max(1, x));
+    y = Math.min(state.map.height, Math.max(1, y));
+    if (!isWalkableCell(state, x, y)) {
+      throw new Error(`${c.id} start x${x}y${y} is not walkable — move the token`);
+    }
+    return { ...c, start: { x, y } };
+  };
 
   const combatants = [...state.pcs.map(clamp), ...state.enemies.map(clamp)];
   const ids = new Set<string>();
@@ -375,15 +479,22 @@ export function buildEncounterFromStudio(state: StudioState): EncounterFixture {
 }
 
 export function studioSummary(state: StudioState) {
+  const unitRow = (c: CombatantFixture) => ({
+    id: c.id,
+    name: c.name,
+    hp: c.maxHp,
+    ac: c.ac,
+    start: c.start,
+    tokenChar: c.tokenChar,
+    side: c.side,
+    role: c.role,
+    tacticsGroup: c.tacticsGroup ?? defaultTacticsGroupForRole(c.role),
+    tacticsSecondary: c.tacticsSecondary ?? null,
+  });
   return {
-    pcs: state.pcs.map((c) => ({ id: c.id, name: c.name, hp: c.maxHp, ac: c.ac, start: c.start })),
-    enemies: state.enemies.map((c) => ({
-      id: c.id,
-      name: c.name,
-      hp: c.maxHp,
-      ac: c.ac,
-      start: c.start,
-    })),
+    pcs: state.pcs.map(unitRow),
+    enemies: state.enemies.map(unitRow),
+    tacticsGroups: listTacticsGroups(),
     map: {
       width: state.map.width,
       height: state.map.height,
@@ -393,6 +504,7 @@ export function studioSummary(state: StudioState) {
       cellCount: state.map.cells.length,
       borderWalls: state.map.borderWalls !== false,
     },
+    board: studioBoard(state),
     asciiPreview: formatStudioAscii(state),
     encounterReady: state.pcs.length > 0 && state.enemies.length > 0,
     encounter: state.encounter

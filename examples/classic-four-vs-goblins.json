@@ -35,6 +35,7 @@
           "Stride_close": 1.2,
           "Stride_cover": 0.3,
           "Step_away": 0.2,
+          "Delay": 0.7,
           "End_turn": 0.1
         },
         "featureBias": { "selfPreservation": 0.3, "focusCaster": 0.4 }
@@ -125,9 +126,10 @@
           "Cast_spell": 1.2,
           "Strike_melee": 0.05,
           "Strike_ranged": 0.2,
-          "Stride_close": 0.15,
+          "Stride_close": 0.9,
           "Stride_cover": 0.9,
           "Step_away": 1.0,
+          "Delay": 0.05,
           "End_turn": 0.2
         },
         "featureBias": { "preferCover": 0.8, "selfPreservation": 0.9 }

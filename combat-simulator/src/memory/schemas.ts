@@ -15,6 +15,7 @@ export const ActionHeadSchema = z.enum([
   "Stride_close",
   "Stride_cover",
   "Step_away",
+  "Delay",
   "End_turn",
 ]);
 export type ActionHead = z.infer<typeof ActionHeadSchema>;
@@ -30,6 +31,18 @@ export const AiProfileSchema = z.object({
     .optional(),
 });
 export type AiProfile = z.infer<typeof AiProfileSchema>;
+
+/** Built-in NWN-style tactics group — exactly one per combatant. */
+export const TacticsGroupIdSchema = z.enum([
+  "frontliner",
+  "archer",
+  "flanker",
+  "buff_debuff",
+  "battlefield_control",
+  "blaster",
+  "healer",
+]);
+export type TacticsGroupId = z.infer<typeof TacticsGroupIdSchema>;
 
 export const WeaponSchema = z.object({
   id: z.string(),
@@ -93,6 +106,10 @@ export const CombatantFixtureSchema = z.object({
   weapons: z.array(WeaponSchema).min(1),
   spells: z.array(SpellSchema).default([]),
   aiProfile: AiProfileSchema,
+  /** Primary built-in tactics group (archer, frontliner, buff/debuff, …). */
+  tacticsGroup: TacticsGroupIdSchema.optional(),
+  /** Optional secondary group blended under the primary (e.g. frontliner + battlefield_control). */
+  tacticsSecondary: TacticsGroupIdSchema.optional(),
 });
 export type CombatantFixture = z.infer<typeof CombatantFixtureSchema>;
 
