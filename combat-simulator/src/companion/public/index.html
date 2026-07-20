@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Combat Studio</title>
+    <link rel="stylesheet" href="/styles.css?v=15" />
+  </head>
+  <body>
+    <div class="shell">
+      <nav class="tabs" aria-label="Views">
+        <button type="button" class="tab active" data-tab="setup">Setup</button>
+        <button type="button" class="tab" data-tab="combat">Combat</button>
+        <button type="button" class="tab" data-tab="logs">Logs</button>
+        <button type="button" class="tab" data-tab="loop">Loop</button>
+        <button type="button" class="tab" data-tab="chat">Chat</button>
+        <span id="model" class="pill muted tab-meta">model</span>
+      </nav>
+
+      <div class="app">
+          <section id="view-setup" class="view active" aria-label="Import setup">
+            <header class="combat-header">
+              <div>
+                <h1>Combat Studio</h1>
+                <p class="meta">Import PCs &amp; enemies as JSON, map as an image, then build and run.</p>
+              </div>
+              <div class="pills header-actions">
+                <button type="button" id="loadSampleBtn" class="accent-btn">Load sample combat</button>
+                <span id="readyPill" class="pill muted">not ready</span>
+              </div>
+            </header>
+
+            <div class="setup-grid">
+              <section class="panel">
+                <h2>PCs (JSON)</h2>
+                <p class="hint">Array of combatants, or one object. Side is forced to party.</p>
+                <label class="file-btn">
+                  Choose JSON
+                  <input type="file" id="pcsFile" accept=".json,application/json" hidden />
+                </label>
+                <ul id="pcsList" class="import-list"></ul>
+              </section>
+
+              <section class="panel">
+                <h2>Enemies (JSON)</h2>
+                <p class="hint">Array of combatants, or one object. Side is forced to enemy.</p>
+                <label class="file-btn">
+                  Choose JSON
+                  <input type="file" id="enemiesFile" accept=".json,application/json" hidden />
+                </label>
+                <ul id="enemiesList" class="import-list"></ul>
+              </section>
+
+              <section class="panel map-panel">
+                <h2>Map</h2>
+                <p class="hint">
+                  Square ASCII grid (Size × Size). Party south in a tight block — normal 4 PCs is
+                  2×2 (XX / XX): tough front, frail back. Enemies north the same way.
+                </p>
+                <div class="map-controls">
+                  <label>
+                    Size
+                    <input
+                      type="number"
+                      id="mapSize"
+                      min="4"
+                      max="24"
+                      value="12"
+                      title="Square size 4–24 (each cell ≈ 5 ft)"
+                    />
+                  </label>
+                  <label class="check">
+                    <input type="checkbox" id="mapBorder" checked />
+                    Border walls
+                  </label>
+                  <button type="button" id="genMapBtn" class="accent-btn">Generate ASCII map</button>
+                  <label class="file-btn">
+                    Choose image
+                    <input type="file" id="mapFile" accept="image/*" hidden />
+                  </label>
+                </div>
+                <div class="map-preview-row">
+                  <img id="mapImg" alt="Map preview" hidden />
+                  <pre id="mapAscii" class="mono map-ascii">Generate a square map or keep the classic default.</pre>
+                </div>
+              </section>
+            </div>
+
+            <div class="setup-actions">
+              <button type="button" id="buildBtn">Build encounter</button>
+              <button type="button" id="runBtn" class="secondary" disabled>Run combat</button>
+              <button type="button" id="resetBtn" class="ghost">Reset studio</button>
+              <p id="setupMsg" class="meta setup-msg"></p>
+            </div>
+          </section>
+
+          <main id="view-combat" class="view combat" aria-label="Combat theater" hidden>
+            <header class="combat-theater-bar">
+              <div>
+                <h1 id="title">Combat</h1>
+                <p id="meta" class="meta">Waiting for combat…</p>
+              </div>
+              <div class="pills header-actions">
+                <span id="phase" class="pill">idle</span>
+                <button type="button" id="advanceRoundBtn" class="accent-btn" hidden>
+                  Next round (Enter)
+                </button>
+                <button type="button" id="clearCombatBtn" class="ghost">Clear</button>
+              </div>
+            </header>
+            <div id="roundStage" class="round-stage" tabindex="0">
+              <p class="round-empty meta">Run combat from Setup — each round pauses here. Press Enter for the next.</p>
+            </div>
+            <!-- legacy ids kept for polling helpers -->
+            <pre id="status" hidden></pre>
+            <pre id="map" hidden></pre>
+            <pre id="log" hidden></pre>
+          </main>
+
+          <section id="view-logs" class="view logs" aria-label="Run logs" hidden>
+            <header class="combat-header">
+              <div>
+                <h1>Run logs</h1>
+                <p class="meta">Saved walks and theater dumps. Click a run to open the walkthrough below.</p>
+              </div>
+              <div class="pills header-actions">
+                <button type="button" id="refreshRunsBtn" class="ghost">Refresh</button>
+              </div>
+            </header>
+            <ul id="runList" class="run-list"></ul>
+            <section class="history-panel" id="historyPanel" hidden>
+              <header class="history-header">
+                <h3 id="historyTitle">History</h3>
+                <button type="button" id="closeHistoryBtn" class="ghost">Close</button>
+              </header>
+              <pre id="historyLog" class="mono history-log"></pre>
+            </section>
+          </section>
+
+          <section id="view-loop" class="view loop" aria-label="Challenge loop report" hidden>
+            <header class="combat-header">
+              <div>
+                <h1>Loop report</h1>
+                <p id="loopMeta" class="meta">
+                  Runs the challenge ladder, then builds a Results matrix dashboard (wins, avg PC dmg, downs, band charts).
+                </p>
+              </div>
+              <div class="pills header-actions">
+                <span id="loopPill" class="pill muted">idle</span>
+                <button type="button" id="startLoopBtn" class="accent-btn">Run loop matrix</button>
+              </div>
+            </header>
+            <form id="loopParams" class="loop-params" aria-label="Loop parameters">
+              <label>
+                Seed repeats
+                <input type="number" id="loopSeedCount" min="1" max="20" value="3" />
+              </label>
+              <label>
+                Base seed
+                <input type="number" id="loopBaseSeed" min="1" max="999999" value="201" />
+              </label>
+              <label>
+                Max rounds
+                <input type="number" id="loopMaxRounds" min="1" max="100" value="20" />
+              </label>
+              <fieldset class="loop-checks">
+                <legend>Party sizes</legend>
+                <label class="check"><input type="checkbox" name="loopParty" value="3" checked /> 3</label>
+                <label class="check"><input type="checkbox" name="loopParty" value="4" checked /> 4</label>
+                <label class="check"><input type="checkbox" name="loopParty" value="5" checked /> 5</label>
+              </fieldset>
+              <fieldset class="loop-checks">
+                <legend>Threats</legend>
+                <label class="check"><input type="checkbox" name="loopThreat" value="trivial" checked /> trivial</label>
+                <label class="check"><input type="checkbox" name="loopThreat" value="moderate" checked /> moderate</label>
+                <label class="check"><input type="checkbox" name="loopThreat" value="hard" checked /> hard</label>
+                <label class="check"><input type="checkbox" name="loopThreat" value="extreme" checked /> extreme</label>
+              </fieldset>
+              <p id="loopFightCount" class="meta">36 fights</p>
+            </form>
+            <p id="loopProgress" class="meta setup-msg"></p>
+            <iframe id="loopReportFrame" class="loop-frame" title="Challenge matrix report"></iframe>
+          </section>
+
+          <aside id="view-chat" class="view chat" aria-label="Side chat" hidden>
+            <header class="chat-header">
+              <div>
+                <h2>Side chat</h2>
+                <p id="chatMeta" class="meta">
+                  Ask during a round pause (Combat → Enter waits). Knows paused vs ended. Does not change combat.
+                </p>
+              </div>
+              <div class="pills header-actions">
+                <span id="chatCombatPill" class="pill muted">no combat</span>
+                <button type="button" id="clearChat" class="ghost">Clear chat</button>
+              </div>
+            </header>
+            <div id="messages" class="messages"></div>
+            <form id="chatForm" class="composer">
+              <textarea
+                id="input"
+                rows="3"
+                placeholder="e.g. Who should the wizard target?"
+                required
+              ></textarea>
+              <button type="submit" id="send">Ask</button>
+            </form>
+          </aside>
+      </div>
+    </div>
+    <canvas id="sampleCanvas" hidden></canvas>
+    <script src="/app.js?v=15"></script>
+  </body>
+</html>

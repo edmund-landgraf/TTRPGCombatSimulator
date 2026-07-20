@@ -1,0 +1,26 @@
+{
+  "name": "ttrpg-combat-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "sim": "tsx src/cli.ts",
+    "companion": "tsx src/cli.ts --companion --max-rounds 3 --no-save",
+    "ui": "tsx src/cli.ts --ui --port 5179",
+    "loop": "tsx src/cli.ts --loop",
+    "matrix": "tsx src/cli.ts --loop",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

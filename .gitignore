@@ -1,0 +1,26 @@
+# Dependencies & build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Sim outputs (large / regenerated)
+**/runs/
+*.log
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Archives (source docs live in folders)
+*.zip
+
+tmp-out.txt
+**/tmp-out.txt
