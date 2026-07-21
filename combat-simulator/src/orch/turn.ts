@@ -104,7 +104,7 @@ export function executeCandidate(
 
   if (choice.head === "Stride_close" || choice.head === "Stride_cover") {
     const before = mem.events.length;
-    const ok = resolveStride(mem, actor, choice.to, mem.round);
+    const ok = resolveStride(mem, actor, choice.to, mem.round, rng);
     for (let i = before; i < mem.events.length; i++) {
       const ev = mem.events[i]!;
       if (ev.t === "hazard") {
@@ -123,7 +123,7 @@ export function executeCandidate(
 
   if (choice.head === "Step_away") {
     const before = mem.events.length;
-    const ok = resolveStep(mem, actor, choice.to, mem.round);
+    const ok = resolveStep(mem, actor, choice.to, mem.round, rng);
     for (let i = before; i < mem.events.length; i++) {
       const ev = mem.events[i]!;
       if (ev.t === "hazard") {
@@ -350,7 +350,7 @@ export async function runTurn(
       if (!cont || choice.head === "End_turn") break;
     }
   } finally {
-    applyEndOfTurnDecay(mem, actor, log);
+    applyEndOfTurnDecay(mem, actor, log, rng);
     mem.activeCombatState = parseCombatState(mem, actor, { turnActive: false });
     mem.activeGrandmasterPlan = undefined;
   }

@@ -1,5 +1,5 @@
 /**
- * Ten classic-four runs with slight tactic note changes; writes analysis JSON.
+ * Ten classic-four runs with slight tactic note changes; writes analysis JSON + pretty HTML.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -8,6 +8,11 @@ import { EncounterFixtureSchema } from "../src/memory/schemas.js";
 import { buildClassicFourCells } from "../src/map/buildClassicMap.js";
 import { runEncounter } from "../src/orch/loop.js";
 import { living } from "../src/memory/combatMemory.js";
+import {
+  prettyReportFromBatch10Json,
+  renderPrettyBatchHtml,
+  type PrettyReject,
+} from "../src/analysis/prettyLoopReport.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -302,7 +307,50 @@ async function main() {
   const outPath = path.join(runsDir, `batch10-report.json`);
   fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
   process.stderr.write(`Wrote ${outPath}\n`);
+
+  const { rejects, total, sourceHint } = tallyTacticsRejects(
+    summaries.map((s) => String((s as { runDir?: string }).runDir ?? "")),
+  );
+  const pretty = prettyReportFromBatch10Json(report, {
+    rejects,
+    totalRejects: total,
+    rejectSource: sourceHint,
+    footer: `Report: ${outPath}`,
+  });
+  const htmlPath = path.join(runsDir, "batch10-results.html");
+  fs.writeFileSync(htmlPath, renderPrettyBatchHtml(pretty));
+  process.stderr.write(`Wrote ${htmlPath}\n`);
+
   console.log(JSON.stringify(report, null, 2));
+}
+
+function tallyTacticsRejects(runDirs: string[]): {
+  rejects: PrettyReject[];
+  total: number;
+  sourceHint: string;
+} {
+  const counts = new Map<string, number>();
+  let total = 0;
+  const re = /TACTICS reject \[([^\]]+)\]/g;
+  for (const dir of runDirs) {
+    if (!dir) continue;
+    const walk = path.join(dir, "walkthrough.md");
+    if (!fs.existsSync(walk)) continue;
+    const text = fs.readFileSync(walk, "utf8");
+    for (const m of text.matchAll(re)) {
+      const skill = m[1] ?? "unknown";
+      counts.set(skill, (counts.get(skill) ?? 0) + 1);
+      total += 1;
+    }
+  }
+  const rejects = [...counts.entries()]
+    .map(([skill, count]) => ({ skill, count }))
+    .sort((a, b) => b.count - a.count);
+  return {
+    rejects,
+    total,
+    sourceHint: "walkthrough.md under runs/batch10/classic-four-vs-goblins/*",
+  };
 }
 
 main().catch((e) => {

@@ -354,6 +354,7 @@ export function formatStudioAscii(state: StudioState): string {
       else if (tags.includes("barricade")) row.push("B");
       else if (tags.includes("cover")) row.push("^");
       else if (tags.includes("grease")) row.push("G");
+      else if (tags.includes("fog")) row.push("F");
       else if (tags.includes("hazardous")) row.push("!");
       else if (tags.includes("difficult")) row.push("~");
       else row.push(".");

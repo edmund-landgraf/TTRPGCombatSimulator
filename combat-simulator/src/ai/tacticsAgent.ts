@@ -14,7 +14,8 @@ import {
   threatenedByRangedLos,
   weakestSaveFoe,
 } from "./combatLoop.js";
-import { hasCapability, resolveBuildProfile } from "./buildProfile.js";
+import { gatherBattlefieldHints, hasCapability, resolveBuildProfile } from "./buildProfile.js";
+import { shouldAttemptFeat } from "./featLookup.js";
 import {
   breakFlankStepPos,
   canReachAdjacentInOneStride,
@@ -347,7 +348,10 @@ const SKILLS: TacticsSkill[] = [
           c.to.y === path.to.y,
       );
       if (!stride) return null;
-      return "sneak attack — Stride to flank (Off-Guard) before the MAP-0 Strike";
+      const hints = gatherBattlefieldHints(mem, actor);
+      const gate = shouldAttemptFeat(mem, actor, "sneak_attack", { hints });
+      if (gate.attempt) return null;
+      return `sneak_attack — ${gate.reason}`;
     },
   },
   {

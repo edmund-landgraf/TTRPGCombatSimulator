@@ -150,6 +150,20 @@ export const PC_TEMPLATES: Template[] = [
         terrainDurationRounds: 10,
       },
       {
+        id: "fog_cloud",
+        name: "Fog Cloud",
+        kind: "save",
+        rank: 1,
+        actions: 3,
+        rangeCells: 24,
+        usesPerCombat: 2,
+        tactic: "control",
+        blastRadius: 2,
+        leaveTerrain: "fog",
+        terrainGlyph: "F",
+        terrainDurationRounds: 10,
+      },
+      {
         id: "sleep",
         name: "Sleep",
         kind: "save",
@@ -386,6 +400,7 @@ export const ENEMY_TEMPLATES: Template[] = [
         damageDie: 6,
         damageBonus: 2,
         reach: 1,
+        afflictionId: "giant_centipede_venom",
       },
     ],
     aiProfile: {

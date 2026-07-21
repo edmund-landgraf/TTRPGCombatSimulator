@@ -5,6 +5,12 @@ import { isFlanking } from "../../ai/flank.js";
 import { groupFlags } from "../../ai/tacticsGroups.js";
 import { formatDamageRoll, formatDiceExpr, rollDamage } from "./damage.js";
 import { applyIncomingDamage } from "./dying.js";
+import { exposeAffliction } from "./affliction.js";
+import {
+  CONCEALED_HIT_FACTOR,
+  fogConcealsTarget,
+  rollConcealedFlat,
+} from "./concealment.js";
 import type { SeededRng } from "./rng.js";
 
 export function mapPenalty(map: number, agile = false): number {
@@ -42,9 +48,11 @@ export function estimatePHit(
   }
   const mod = weapon.attackBonus + mapPenalty(attacker.map, !!weapon.agile);
   const need = ac - mod;
-  if (need <= 1) return 0.95;
-  if (need >= 20) return 0.05;
-  return Math.max(0.05, Math.min(0.95, (21 - need) / 20));
+  let p =
+    need <= 1 ? 0.95 : need >= 20 ? 0.05 : Math.max(0.05, Math.min(0.95, (21 - need) / 20));
+  // Fog → concealed (DC 5 flat), not a −2 attack penalty.
+  if (fogConcealsTarget(mem, attacker, target)) p *= CONCEALED_HIT_FACTOR;
+  return p;
 }
 
 export function resolveStrike(
@@ -98,8 +106,37 @@ export function resolveStrike(
     weapon.kind === "melee" && isFlanking(mem, attacker, target, weapon.reach ?? 1);
   if (flanked) ac -= 2;
 
-  const d20 = rng.d20();
   const mod = weapon.attackBonus + mapPenalty(attacker.map, !!weapon.agile);
+  const flat = rollConcealedFlat(mem, attacker, target, rng);
+  if (flat.required && !flat.passed) {
+    // Concealed miss: no attack roll; action + MAP still spent.
+    mem.events.push({
+      t: "attack",
+      round,
+      actor: attacker.id,
+      target: target.id,
+      weapon: weapon.id,
+      weaponName: weaponLabel(weapon),
+      d20: 0,
+      mod,
+      total: 0,
+      ac,
+      hit: false,
+      crit: false,
+      damageExpr: formatDiceExpr(weapon.damageDice, weapon.damageDie, weapon.damageBonus),
+      diceRolls: [],
+      damageBonus: weapon.damageBonus,
+      dmg: 0,
+      hpAfter: target.hp,
+      map: attacker.map,
+      concealedFlat: { d20: flat.d20, dc: flat.dc, passed: false },
+    });
+    attacker.map += 1;
+    attacker.actionsLeft -= 1;
+    return;
+  }
+
+  const d20 = rng.d20();
   const total = d20 + mod;
   const crit = d20 === 20 || total >= ac + 10;
   const hit = crit || total >= ac;
@@ -123,6 +160,9 @@ export function resolveStrike(
     }
     target.conditions = target.conditions.filter((c) => c.name !== "asleep");
     applyIncomingDamage(target, dmg, { critical: crit });
+    if (weapon.afflictionId) {
+      exposeAffliction(mem, target, weapon.afflictionId, rng, []);
+    }
   }
 
   mem.events.push({
@@ -144,6 +184,9 @@ export function resolveStrike(
     dmg,
     hpAfter: target.hp,
     map: attacker.map,
+    concealedFlat: flat.required
+      ? { d20: flat.d20, dc: flat.dc, passed: true }
+      : undefined,
   });
 
   attacker.map += 1;
@@ -153,8 +196,18 @@ export function resolveStrike(
 export function formatAttackLine(
   e: Extract<CombatMemory["events"][number], { t: "attack" }>,
 ): string {
+  if (e.concealedFlat && !e.concealedFlat.passed) {
+    return (
+      `  Strike ${e.target} with ${e.weaponName}: CONCEALED miss` +
+      ` (flat ${e.concealedFlat.d20} vs DC ${e.concealedFlat.dc})`
+    );
+  }
   const result = e.crit ? "CRIT" : e.hit ? "HIT" : "MISS";
-  let line = `  Strike ${e.target} with ${e.weaponName}: d20 ${e.d20}+${e.mod}=${e.total} vs AC ${e.ac} ${result}`;
+  const fogNote =
+    e.concealedFlat?.passed
+      ? ` [concealed flat ${e.concealedFlat.d20} vs DC ${e.concealedFlat.dc}]`
+      : "";
+  let line = `  Strike ${e.target} with ${e.weaponName}: d20 ${e.d20}+${e.mod}=${e.total} vs AC ${e.ac} ${result}${fogNote}`;
   if (e.hit) {
     const sub = e.diceRolls.reduce((a, b) => a + b, 0) + e.damageBonus;
     line +=

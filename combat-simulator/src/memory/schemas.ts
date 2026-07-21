@@ -55,13 +55,52 @@ export const WeaponSchema = z.object({
   reach: z.number().int().positive().default(1),
   /** Agile trait → MAP −4 / −8 instead of −5 / −10. */
   agile: z.boolean().optional(),
+  /** On a hit, expose the target to this affliction catalog id (injury poison, etc.). */
+  afflictionId: z.string().optional(),
 });
 export type Weapon = z.infer<typeof WeaponSchema>;
+
+/** One stage of a PF2e affliction (lossy combat stub). */
+export const AfflictionStageSchema = z.object({
+  /** Immediate damage when entering this stage. */
+  damageDice: z.number().int().nonnegative().default(0),
+  damageDie: z.number().int().positive().optional(),
+  damageBonus: z.number().default(0),
+  /** Condition names applied while at this stage (e.g. "clumsy", "off-guard"). */
+  conditions: z.array(z.string()).default([]),
+  /** Condition value when applicable (clumsy 1 → 1). */
+  conditionValue: z.number().int().positive().optional(),
+  /** Interval before the next save, in rounds (combat-scoped). */
+  intervalRounds: z.number().int().positive().default(1),
+});
+export type AfflictionStage = z.infer<typeof AfflictionStageSchema>;
+
+/**
+ * Combat-ready affliction definition (poison / disease / curse).
+ * Full PF2e onset/day-long diseases are out of scope; prefer 1-round poisons.
+ */
+export const AfflictionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.enum(["poison", "disease", "curse", "other"]).default("poison"),
+  level: z.number().int().nonnegative().optional(),
+  saveDc: z.number().int().positive(),
+  /** Virulent: need two consecutive successes to reduce stage by 1. */
+  virulent: z.boolean().default(false),
+  /** Max rounds the affliction can last; omit = until recovered. */
+  maxDurationRounds: z.number().int().positive().optional(),
+  stages: z.array(AfflictionStageSchema).min(1),
+  aonId: z.number().int().optional(),
+  aonUrl: z.string().optional(),
+  summary: z.string().optional(),
+});
+export type Affliction = z.infer<typeof AfflictionSchema>;
 
 /** Terrain tags on a map cell.
  * - wall_h / wall_v: oriented solid walls (block move + LOS); brush toggles H ↔ V
  * - barricade: soft cover marker "B" (walkable, shoot-over; PF2e standard cover)
  * - grease: spell-created slick (glyph G); counts as difficult for pathing
+ * - fog: mist / Fog Cloud (glyph F); creatures in fog are concealed (DC 5 flat check)
  */
 export const MapTerrainTagSchema = z.enum([
   "floor",
@@ -73,16 +112,23 @@ export const MapTerrainTagSchema = z.enum([
   "wall_v",
   "barricade",
   "grease",
+  "fog",
 ]);
 export type MapTerrainTag = z.infer<typeof MapTerrainTagSchema>;
 
 /** Default ASCII/UI glyph for spell-created terrain. */
 export function terrainGlyphFor(tag: string): string {
   if (tag === "grease") return "G";
+  if (tag === "fog") return "F";
   if (tag === "barricade") return "B";
   if (tag === "hazardous") return "!";
   if (tag === "difficult") return "~";
   return "?";
+}
+
+/** Fog / mist terrain — grants concealed (not a −2 attack penalty). */
+export function isFogTags(tags: readonly string[]): boolean {
+  return tags.includes("fog");
 }
 
 /** Tags that cost +1 movement like difficult terrain. */
@@ -128,6 +174,8 @@ export const SpellSchema = z.object({
   skipIfSaveBonusGte: z.number().int().optional(),
   /** On failed save (or always if no save), apply this condition name. */
   applyCondition: z.string().optional(),
+  /** On failed save, expose the target to this affliction catalog id. */
+  applyAffliction: z.string().optional(),
   /**
    * Burst radius in cells (Chebyshev) for spherical AoE — e.g. Fireball radius 2.
    * Affects all valid creatures in range; used for multi-target scoring.
@@ -203,6 +251,72 @@ export function isCoverTags(tags: readonly string[]): boolean {
   return tags.includes("cover") || tags.includes("barricade");
 }
 
+/**
+ * Combat-ready PF2e hazard stub (trap / haunt / environmental).
+ * Full disable skills & complex hazard initiative are simplified.
+ */
+export const HazardSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  level: z.number().int().default(0),
+  complexity: z.enum(["simple", "complex"]).default("simple"),
+  hazardType: z.enum(["trap", "haunt", "environmental", "other"]).default("trap"),
+  stealthDc: z.number().int().nonnegative().optional(),
+  disableDc: z.number().int().nonnegative().optional(),
+  disableSkill: z.string().optional(),
+  /** When the hazard attempts its effect. */
+  trigger: z
+    .enum(["enter_square", "end_turn_in", "manual"])
+    .default("enter_square"),
+  /** Attack roll vs AC (e.g. Spear Launcher); omit for save-only / auto. */
+  attackBonus: z.number().int().optional(),
+  saveDc: z.number().int().optional(),
+  halfOnSave: z.boolean().default(true),
+  damageDice: z.number().int().nonnegative().default(0),
+  damageDie: z.number().int().positive().optional(),
+  damageBonus: z.number().default(0),
+  applyCondition: z.string().optional(),
+  applyAffliction: z.string().optional(),
+  /** Simple traps: disarm after one trigger until reset. */
+  once: z.boolean().default(true),
+  /** Paint these terrain tags on the hazard's cells when placed. */
+  paintTags: z.array(MapTerrainTagSchema).default([]),
+  aonId: z.number().int().optional(),
+  aonUrl: z.string().optional(),
+  summary: z.string().optional(),
+});
+export type Hazard = z.infer<typeof HazardSchema>;
+
+/**
+ * Combat-ready archetype dedication stub.
+ * Full feat trees are not modeled — only overlay / capability biases.
+ */
+export const ArchetypeSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.enum(["multiclass", "other"]).default("other"),
+  dedicationLevel: z.number().int().default(2),
+  /** Existing feat-archetype-overlays.json key, if any. */
+  overlayId: z.string().optional(),
+  grantCapabilities: z.array(z.string()).default([]),
+  preferPacketIds: z.array(z.string()).default([]),
+  scoreHints: z.record(z.number()).default({}),
+  roleHint: z.string().optional(),
+  aonId: z.number().int().optional(),
+  aonUrl: z.string().optional(),
+  summary: z.string().optional(),
+});
+export type Archetype = z.infer<typeof ArchetypeSchema>;
+
+/** Place a catalog hazard onto one or more map cells. */
+export const HazardPlacementSchema = z.object({
+  hazardId: z.string(),
+  cells: z.array(PositionSchema).min(1),
+  /** Instance starts disabled (already found/disarmed). */
+  disabled: z.boolean().default(false),
+});
+export type HazardPlacement = z.infer<typeof HazardPlacementSchema>;
+
 export const EncounterFixtureSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -211,6 +325,8 @@ export const EncounterFixtureSchema = z.object({
   height: z.number().int().positive(),
   cells: z.array(MapCellSchema),
   combatants: z.array(CombatantFixtureSchema),
+  /** Catalog hazards placed on the map (traps, pits, runes, …). */
+  hazards: z.array(HazardPlacementSchema).default([]),
 });
 export type EncounterFixture = z.infer<typeof EncounterFixtureSchema>;
 

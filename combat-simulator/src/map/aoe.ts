@@ -278,6 +278,9 @@ export function narrativeTerrainDissipates(effect: {
   if (effect.tag === "grease" || /grease/i.test(name)) {
     return `${name} dissipates at the final round of the spell — the slick of ${effect.glyph} fades from the battlefield.`;
   }
+  if (effect.tag === "fog" || /fog/i.test(name)) {
+    return `${name} dissipates — the ${effect.glyph} mist thins and sight returns.`;
+  }
   return `${name} (${effect.glyph}) dissipates at the final round of the spell and leaves the map.`;
 }
 
@@ -292,6 +295,9 @@ export function narrativeTerrainFinalRound(effect: {
   if (effect.tag === "grease" || /grease/i.test(name)) {
     return `${name} will dissipate at the end of this round (r${effect.expiresAtEndOfRound}) as the spell ends.`;
   }
+  if (effect.tag === "fog" || /fog/i.test(name)) {
+    return `${name} will clear at the end of this round (r${effect.expiresAtEndOfRound}) as the mist fades.`;
+  }
   return `${name} (${effect.glyph}) will dissipate at the end of this round (r${effect.expiresAtEndOfRound}) as the spell ends.`;
 }
 
@@ -302,6 +308,9 @@ export function narrativeTerrainCreated(effect: ActiveTerrainEffect): string {
   }
   if (effect.tag === "grease" || /grease/i.test(effect.spellName)) {
     return `${effect.spellName} coats the area in ${effect.glyph}; it will dissipate at the end of round ${effect.expiresAtEndOfRound}.`;
+  }
+  if (effect.tag === "fog" || /fog/i.test(effect.spellName)) {
+    return `${effect.spellName} fills the area with ${effect.glyph} (concealed); clears at end of round ${effect.expiresAtEndOfRound}.`;
   }
   return `${effect.spellName} (${effect.glyph}) lasts through round ${effect.expiresAtEndOfRound}, then dissipates.`;
 }

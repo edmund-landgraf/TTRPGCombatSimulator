@@ -1,3 +1,4 @@
+import type { Candidate } from "../ai/scorer.js";
 import type { CombatMemory } from "../memory/combatMemory.js";
 import { cellId } from "../memory/schemas.js";
 import {
@@ -5,7 +6,15 @@ import {
   formatRoundSummary,
   formatStatusRoster,
 } from "../orch/roundOutput.js";
+import { buildPlayerChoices } from "../play/choices.js";
+import type { ActionChooser } from "../play/prompt.js";
 import { describeVitalStatus } from "../rules/pf2e/dying.js";
+import {
+  buildTheaterSnapshot,
+  type TheaterSnapshot,
+} from "./theater.js";
+
+export type { TheaterSnapshot, TheaterChoice } from "./theater.js";
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -29,7 +38,22 @@ export type BoardToken = {
   downed: boolean;
   vitalState?: "ok" | "unconscious" | "dying" | "dead";
   vitalLabel?: string;
+  /** Condition / affliction labels for map hover (e.g. "frightened 1"). */
+  statuses?: string[];
 };
+
+/** Full condition + affliction labels for roster / board tokens. */
+export function formatCombatantStatuses(c: {
+  conditions: Array<{ name: string; value?: number }>;
+  afflictions: Array<{ name: string; stage: number }>;
+}): string[] {
+  return [
+    ...c.conditions.map((x) =>
+      x.value != null ? `${x.name} ${x.value}` : x.name,
+    ),
+    ...c.afflictions.map((a) => `${a.name} s${a.stage}`),
+  ];
+}
 
 export type BoardSnapshot = {
   width: number;
@@ -84,6 +108,14 @@ export type CombatContext = {
   endReason?: string;
   winner?: string;
   initiative: string[];
+  /** Combatant currently resolving a turn (null when idle / between turns). */
+  activeActorId?: string | null;
+  /** Last combatant who finished a turn. */
+  justActedId?: string | null;
+  /** Next living combatant in the initiative queue. */
+  nextActorId?: string | null;
+  /** Map highlights + player action menu for the active actor. */
+  theater?: TheaterSnapshot | null;
   statusText: string;
   mapText: string;
   board: BoardSnapshot;
@@ -116,6 +148,7 @@ export function buildBoard(mem: CombatMemory): BoardSnapshot {
   }
   const tokens: BoardToken[] = [...mem.combatants.values()].map((c) => {
     const vital = describeVitalStatus(c);
+    const statuses = formatCombatantStatuses(c);
     return {
       id: c.id,
       name: c.name,
@@ -126,6 +159,7 @@ export function buildBoard(mem: CombatMemory): BoardSnapshot {
       downed: c.downed,
       vitalState: vital.state,
       vitalLabel: vital.label,
+      statuses,
     };
   });
   return { width, height, cells, tokens };
@@ -145,9 +179,21 @@ export class CompanionSession {
   /** Active memory while a run is in flight (for deploy-time token moves). */
   liveMemory: CombatMemory | null = null;
 
+  /** Turn cursor published into CombatContext. */
+  activeActorId: string | null = null;
+  justActedId: string | null = null;
+  nextActorId: string | null = null;
+  theater: TheaterSnapshot | null = null;
+
   private advanceWaiters: Array<{
     resolve: (result: "advanced" | "cancelled") => void;
   }> = [];
+
+  private pendingChoice: {
+    resolve: (c: Candidate) => void;
+    reject: (err: Error) => void;
+    byKey: Map<string, Candidate>;
+  } | null = null;
 
   reset(): void {
     this.context = null;
@@ -156,6 +202,8 @@ export class CompanionSession {
     this.rounds = [];
     this.waitingForAdvance = false;
     this.liveMemory = null;
+    this.clearTurnCursor();
+    this.cancelPlayerChoice("Combat session reset");
     this.cancelWaiters();
   }
 
@@ -166,7 +214,89 @@ export class CompanionSession {
     this.rounds = [];
     this.waitingForAdvance = false;
     this.liveMemory = null;
+    this.clearTurnCursor();
+    this.cancelPlayerChoice("Combat cleared");
     this.cancelWaiters();
+  }
+
+  clearTurnCursor(): void {
+    this.activeActorId = null;
+    this.justActedId = null;
+    this.nextActorId = null;
+    this.theater = null;
+  }
+
+  setTurnCursor(opts: {
+    activeActorId?: string | null;
+    justActedId?: string | null;
+    nextActorId?: string | null;
+    theater?: TheaterSnapshot | null;
+  }): void {
+    if (opts.activeActorId !== undefined) this.activeActorId = opts.activeActorId;
+    if (opts.justActedId !== undefined) this.justActedId = opts.justActedId;
+    if (opts.nextActorId !== undefined) this.nextActorId = opts.nextActorId;
+    if (opts.theater !== undefined) this.theater = opts.theater;
+  }
+
+  /** Build map highlights for an actor (no player menu). */
+  refreshTheaterForActor(mem: CombatMemory, actorId: string | null): void {
+    if (!actorId) {
+      this.theater = null;
+      return;
+    }
+    const actor = mem.combatants.get(actorId);
+    if (!actor || actor.downed) {
+      this.theater = null;
+      return;
+    }
+    this.theater = buildTheaterSnapshot(mem, actor, { awaitingPlayer: false });
+  }
+
+  /**
+   * UI-backed ActionChooser for hybrid play (party only — callers gate by side).
+   * Publishes theater.awaitingPlayer + choices until submitPlayerChoice.
+   */
+  createUiChooser(): ActionChooser {
+    return async (mem, actor, visited) => {
+      const choices = buildPlayerChoices(mem, actor, visited);
+      this.activeActorId = actor.id;
+      this.theater = buildTheaterSnapshot(mem, actor, {
+        awaitingPlayer: true,
+        choices,
+      });
+      this.liveMemory = mem;
+      this.publishFromMemory(mem, { phase: "active" });
+
+      return new Promise<Candidate>((resolve, reject) => {
+        const byKey = new Map<string, Candidate>();
+        for (const ch of choices) byKey.set(ch.key, ch.candidate);
+        this.pendingChoice = { resolve, reject, byKey };
+      });
+    };
+  }
+
+  /** Resolve the pending UI choice (menu key from buildPlayerChoices). */
+  submitPlayerChoice(key: string): void {
+    if (!this.pendingChoice) {
+      throw new Error("No player action is awaiting a choice");
+    }
+    const cand = this.pendingChoice.byKey.get(key);
+    if (!cand) {
+      throw new Error(`Unknown action key: ${key}`);
+    }
+    const { resolve } = this.pendingChoice;
+    this.pendingChoice = null;
+    if (this.theater) {
+      this.theater = { ...this.theater, awaitingPlayer: false, choices: [] };
+    }
+    resolve(cand);
+  }
+
+  cancelPlayerChoice(reason = "Player choice cancelled"): void {
+    if (!this.pendingChoice) return;
+    const { reject } = this.pendingChoice;
+    this.pendingChoice = null;
+    reject(new Error(reason));
   }
 
   private resolveWaiters(result: "advanced" | "cancelled"): void {
@@ -319,9 +449,7 @@ export class CompanionSession {
         wounded: vital.wounded,
         vitalLabel: vital.label,
         vitalNote: vital.note,
-        conditions: c.conditions.map((x) =>
-          x.value != null ? `${x.name} ${x.value}` : x.name,
-        ),
+        conditions: formatCombatantStatuses(c),
         weapons: c.weapons.map((w) => w.id),
         spells: c.spells.map((s) => s.name),
         spellUsesLeft: c.spells
@@ -360,6 +488,10 @@ export class CompanionSession {
       endReason: opts?.endReason,
       winner: opts?.winner,
       initiative: [...mem.initiative],
+      activeActorId: this.activeActorId,
+      justActedId: this.justActedId,
+      nextActorId: this.nextActorId,
+      theater: this.theater,
       statusText:
         phase === "deploy"
           ? "--- Deploy — drag tokens, then Start Round 1 ---"

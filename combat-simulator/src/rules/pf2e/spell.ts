@@ -12,6 +12,12 @@ import {
 import { chebyshev, hasCoverFromAttack, hasLineOfSight } from "../../map/grid.js";
 import { rollDamage } from "./damage.js";
 import { applyHealing, applyIncomingDamage, isDead } from "./dying.js";
+import { exposeAffliction } from "./affliction.js";
+import {
+  CONCEALED_HIT_FACTOR,
+  fogConcealsTarget,
+  rollConcealedFlat,
+} from "./concealment.js";
 import { mapPenalty } from "./strike.js";
 import type { SeededRng } from "./rng.js";
 
@@ -69,9 +75,10 @@ export function estimateSpellScore(
     if (hasCoverFromAttack(mem.grid, caster.pos, target.pos)) ac += 2;
     const mod = spell.attackBonus + mapPenalty(caster.map, false);
     const need = ac - mod;
-    if (need <= 1) return 0.9;
-    if (need >= 20) return 0.1;
-    return Math.max(0.1, Math.min(0.9, (21 - need) / 20));
+    let p =
+      need <= 1 ? 0.9 : need >= 20 ? 0.1 : Math.max(0.1, Math.min(0.9, (21 - need) / 20));
+    if (fogConcealsTarget(mem, caster, target)) p *= CONCEALED_HIT_FACTOR;
+    return p;
   }
   if (spell.kind === "save" && spell.saveDc != null) {
     const need = spell.saveDc - target.saveBonus;
@@ -141,6 +148,31 @@ export function resolveSpell(
     }
   }
 
+  // Terrain-only control (e.g. Fog Cloud): paint map, skip saves / attack rolls.
+  const terrainOnly =
+    !!spell.leaveTerrain &&
+    spell.kind === "save" &&
+    !spell.damageDice &&
+    !spell.applyCondition &&
+    !spell.applyAffliction;
+  if (terrainOnly) {
+    mem.events.push({
+      t: "spell",
+      round,
+      actor: caster.id,
+      target: target.id,
+      spell: spell.id,
+      spellName: spell.name,
+      kind: "save",
+      dmg: 0,
+      hpAfter: target.hp,
+      actionsSpent: spell.actions,
+      map: caster.map,
+    });
+    caster.actionsLeft -= spell.actions;
+    return;
+  }
+
   if (spell.kind === "heal") {
     const dice = spell.healDice ?? 1;
     const die = spell.healDie ?? 8;
@@ -171,8 +203,34 @@ export function resolveSpell(
   if (spell.kind === "attack") {
     let ac = target.ac;
     if (hasCoverFromAttack(mem.grid, caster.pos, target.pos)) ac += 2;
-    const d20 = rng.d20();
     const mod = (spell.attackBonus ?? 0) + mapPenalty(caster.map, false);
+    const flat = rollConcealedFlat(mem, caster, target, rng);
+    if (flat.required && !flat.passed) {
+      mem.events.push({
+        t: "spell",
+        round,
+        actor: caster.id,
+        target: target.id,
+        spell: spell.id,
+        spellName: spell.name,
+        kind: "attack",
+        d20: 0,
+        mod,
+        total: 0,
+        ac,
+        hit: false,
+        crit: false,
+        dmg: 0,
+        hpAfter: target.hp,
+        actionsSpent: spell.actions,
+        map: caster.map,
+        concealedFlat: { d20: flat.d20, dc: flat.dc, passed: false },
+      });
+      caster.map += 1;
+      caster.actionsLeft -= spell.actions;
+      return;
+    }
+    const d20 = rng.d20();
     const total = d20 + mod;
     const crit = d20 === 20 || total >= ac + 10;
     const hit = crit || total >= ac;
@@ -210,6 +268,9 @@ export function resolveSpell(
       hpAfter: target.hp,
       actionsSpent: spell.actions,
       map: caster.map,
+      concealedFlat: flat.required
+        ? { d20: flat.d20, dc: flat.dc, passed: true }
+        : undefined,
     });
     caster.map += 1;
     caster.actionsLeft -= spell.actions;
@@ -269,12 +330,19 @@ export function resolveSpell(
       }
     }
     let applied: string | undefined;
+    let appliedAffliction: string | undefined;
     if (!saved && spell.applyCondition) {
       const name = spell.applyCondition;
       if (!tgt.conditions.some((c) => c.name === name)) {
         tgt.conditions.push({ id: name, name });
       }
       applied = name;
+    }
+    if (!saved && spell.applyAffliction) {
+      exposeAffliction(mem, tgt, spell.applyAffliction, rng, [], {
+        saveDcOverride: spell.saveDc,
+      });
+      appliedAffliction = spell.applyAffliction;
     }
     mem.events.push({
       t: "spell",
@@ -297,6 +365,7 @@ export function resolveSpell(
       actionsSpent: first ? spell.actions : 0,
       map: caster.map,
       appliedCondition: applied,
+      appliedAffliction,
     });
     first = false;
   }

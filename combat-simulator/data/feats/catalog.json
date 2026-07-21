@@ -1,0 +1,564 @@
+{
+  "generatedAt": "2026-07-20T23:46:13.610Z",
+  "source": "data/aon/Feats.aspx.html",
+  "count": 25,
+  "note": "Combat-attempt feat stubs joined to AoN IDs. Runtime: shouldAttemptFeat gates Step 4.",
+  "feats": [
+    {
+      "id": "exacting_strike",
+      "name": "Exacting Strike",
+      "aonId": 357,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=357",
+      "summary": "You make a controlled attack, fully accounting for your momentum.",
+      "level": 1,
+      "traits": [
+        "Fighter",
+        "Press"
+      ],
+      "matchedName": "Exacting Strike",
+      "preferPacketIds": [
+        "engage_and_hold",
+        "flank_crit_fish"
+      ],
+      "head": "Strike_melee",
+      "actions": 1,
+      "frequency": "at_will",
+      "effectClass": "strikeMod",
+      "needsAdjacentFoe": true,
+      "maxMap": 1,
+      "scoreHint": 1.4
+    },
+    {
+      "id": "heal_font",
+      "name": "Healing Font",
+      "aonId": 267,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=267",
+      "summary": "Your positive energy is even more vibrant and restorative.",
+      "level": 1,
+      "traits": [
+        "Cleric"
+      ],
+      "matchedName": "Healing Hands",
+      "overlayId": "heal_font",
+      "preferPacketIds": [
+        "focus_fire_wounded"
+      ],
+      "head": "Heal_ally",
+      "actions": 2,
+      "frequency": "at_will",
+      "effectClass": "healBias",
+      "minActions": 1,
+      "scoreHint": 2.5
+    },
+    {
+      "id": "nimble_dodge",
+      "name": "Nimble Dodge",
+      "aonId": 550,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=550",
+      "summary": "You deftly dodge out of the way.",
+      "level": 1,
+      "traits": [
+        "Rogue",
+        "Swashbuckler"
+      ],
+      "matchedName": "Nimble Dodge",
+      "head": "Step_away",
+      "actions": 0,
+      "frequency": "reaction",
+      "effectClass": "reaction",
+      "needsReactionAvailable": true,
+      "scoreHint": 1
+    },
+    {
+      "id": "point_blank_shot",
+      "name": "Point-Blank Shot",
+      "aonId": 358,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=358",
+      "summary": "You take aim to pick off nearby enemies quickly.",
+      "level": 1,
+      "traits": [
+        "Fighter",
+        "Open",
+        "Stance"
+      ],
+      "matchedName": "Point-Blank Shot",
+      "head": "Strike_ranged",
+      "actions": 1,
+      "frequency": "at_will",
+      "effectClass": "setup",
+      "minActions": 1,
+      "scoreHint": 1.1
+    },
+    {
+      "id": "power_attack",
+      "name": "Power Attack",
+      "aonId": 359,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=359",
+      "summary": "You unleash a particularly powerful attack that clobbers your foe but leaves you a bit unsteady.",
+      "level": 1,
+      "traits": [
+        "Fighter",
+        "Flourish"
+      ],
+      "matchedName": "Power Attack",
+      "preferPacketIds": [
+        "engage_and_hold",
+        "flank_crit_fish"
+      ],
+      "head": "Strike_melee",
+      "actions": 2,
+      "frequency": "at_will",
+      "effectClass": "strikeMod",
+      "needsAdjacentFoe": true,
+      "minActions": 2,
+      "maxMap": 0,
+      "scoreHint": 1.8
+    },
+    {
+      "id": "shield_block",
+      "name": "Shield Block",
+      "aonId": 839,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=839",
+      "summary": "Ward off a blow with your shield.",
+      "level": 1,
+      "traits": [
+        "General"
+      ],
+      "matchedName": "Shield Block",
+      "overlayId": "shield_block",
+      "preferPacketIds": [
+        "engage_and_hold"
+      ],
+      "head": "Raise_Shield",
+      "actions": 0,
+      "frequency": "reaction",
+      "effectClass": "reaction",
+      "needsRaisedShield": true,
+      "needsReactionAvailable": true,
+      "scoreHint": 1.2
+    },
+    {
+      "id": "sudden_charge",
+      "name": "Sudden Charge",
+      "aonId": 134,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=134",
+      "summary": "With a quick sprint, you dash up to your foe and swing.",
+      "level": 1,
+      "traits": [
+        "Barbarian",
+        "Fighter",
+        "Flourish",
+        "Open"
+      ],
+      "matchedName": "Sudden Charge",
+      "overlayId": "sudden_charge",
+      "preferPacketIds": [
+        "sudden_charge_crash"
+      ],
+      "head": "Stride_close",
+      "actions": 2,
+      "frequency": "at_will",
+      "effectClass": "setup",
+      "minActions": 2,
+      "maxMap": 0,
+      "scoreHint": 2
+    },
+    {
+      "id": "twin_feint",
+      "name": "Twin Feint",
+      "aonId": 552,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=552",
+      "summary": "You make a dazzling series of attacks with both weapons, using the first attack to throw your foe off guard against a second attack at a different angle.",
+      "level": 1,
+      "traits": [
+        "Rogue"
+      ],
+      "matchedName": "Twin Feint",
+      "preferPacketIds": [
+        "flank_sneak",
+        "skirmish_exit"
+      ],
+      "head": "Strike_melee",
+      "actions": 2,
+      "frequency": "at_will",
+      "effectClass": "setup",
+      "needsAdjacentFoe": true,
+      "minActions": 2,
+      "maxMap": 0,
+      "scoreHint": 2
+    },
+    {
+      "id": "vicious_swing",
+      "name": "Vicious Swing",
+      "aonId": 4775,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=4775",
+      "summary": "You unleash a particularly powerful attack that clobbers your foe but leaves you a bit unsteady.",
+      "level": 1,
+      "traits": [
+        "Fighter",
+        "Flourish"
+      ],
+      "matchedName": "Vicious Swing",
+      "preferPacketIds": [
+        "engage_and_hold"
+      ],
+      "head": "Strike_melee",
+      "actions": 2,
+      "frequency": "at_will",
+      "effectClass": "strikeMod",
+      "needsAdjacentFoe": true,
+      "minActions": 2,
+      "maxMap": 0,
+      "scoreHint": 1.8
+    },
+    {
+      "id": "champion_dedication",
+      "name": "Champion Dedication",
+      "aonId": 686,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=686",
+      "summary": "You become a multiclass champion.",
+      "level": 2,
+      "traits": [
+        "Archetype",
+        "Dedication",
+        "Multiclass"
+      ],
+      "matchedName": "Champion Dedication",
+      "overlayId": "champion_dedication",
+      "preferPacketIds": [
+        "engage_and_hold"
+      ],
+      "head": "Raise_Shield",
+      "actions": 0,
+      "frequency": "reaction",
+      "effectClass": "reaction",
+      "needsAdjacentFoe": true,
+      "scoreHint": 1
+    },
+    {
+      "id": "combat_grab",
+      "name": "Combat Grab",
+      "aonId": 366,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=366",
+      "summary": "You swipe at your opponent and grab at them.",
+      "level": 2,
+      "traits": [
+        "Fighter",
+        "Press"
+      ],
+      "matchedName": "Combat Grab",
+      "preferPacketIds": [
+        "engage_and_hold"
+      ],
+      "head": "Strike_melee",
+      "actions": 1,
+      "frequency": "at_will",
+      "effectClass": "strikeMod",
+      "needsAdjacentFoe": true,
+      "maxMap": 0,
+      "scoreHint": 1.3
+    },
+    {
+      "id": "intimidating_strike",
+      "name": "Intimidating Strike",
+      "aonId": 368,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=368",
+      "summary": "Your blow not only wounds creatures but also shatters their confidence.",
+      "level": 2,
+      "traits": [
+        "Emotion",
+        "Fear",
+        "Fighter",
+        "Mental"
+      ],
+      "matchedName": "Intimidating Strike",
+      "preferPacketIds": [
+        "engage_and_hold"
+      ],
+      "head": "Strike_melee",
+      "actions": 2,
+      "frequency": "at_will",
+      "effectClass": "strikeMod",
+      "needsAdjacentFoe": true,
+      "minActions": 2,
+      "maxMap": 0,
+      "scoreHint": 1.6
+    },
+    {
+      "id": "inspire_courage",
+      "name": "Courageous Anthem",
+      "aonId": 4592,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=4592",
+      "summary": "You learn the rallying anthem composition cantrip, which protects you and allies.",
+      "level": 4,
+      "traits": [
+        "Bard"
+      ],
+      "matchedName": "Rallying Anthem",
+      "overlayId": "inspire_courage",
+      "preferPacketIds": [
+        "buff_then_blast"
+      ],
+      "head": "Cast_spell",
+      "actions": 1,
+      "frequency": "at_will",
+      "effectClass": "buff",
+      "minActions": 1,
+      "scoreHint": 2.5
+    },
+    {
+      "id": "dread_striker",
+      "name": "Dread Striker",
+      "aonId": 561,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=561",
+      "summary": "You capitalize on your enemies’ fear to slip past their defenses.",
+      "level": 4,
+      "traits": [
+        "Rogue"
+      ],
+      "matchedName": "Dread Striker",
+      "preferPacketIds": [
+        "flank_sneak"
+      ],
+      "head": "Strike_melee",
+      "actions": 1,
+      "frequency": "at_will",
+      "effectClass": "strikeMod",
+      "scoreHint": 1.2
+    },
+    {
+      "id": "ignore_difficult_terrain",
+      "name": "Ignore Difficult Terrain",
+      "aonId": 325,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=325",
+      "summary": "You can always find a path, almost as if foliage parted before you.",
+      "level": 4,
+      "traits": [
+        "Druid"
+      ],
+      "matchedName": "Woodland Stride",
+      "overlayId": "ignore_difficult_terrain",
+      "head": "Stride_close",
+      "actions": 0,
+      "frequency": "at_will",
+      "effectClass": "terrain",
+      "scoreHint": 1
+    },
+    {
+      "id": "knockdown",
+      "name": "Knockdown",
+      "aonId": 372,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=372",
+      "summary": "You make an attack to knock a foe off balance, then follow up immediately with a sweep to topple them.",
+      "level": 4,
+      "traits": [
+        "Fighter",
+        "Flourish"
+      ],
+      "matchedName": "Knockdown",
+      "preferPacketIds": [
+        "engage_and_hold"
+      ],
+      "head": "Strike_melee",
+      "actions": 2,
+      "frequency": "at_will",
+      "effectClass": "setup",
+      "needsAdjacentFoe": true,
+      "minActions": 2,
+      "maxMap": 0,
+      "scoreHint": 1.7
+    },
+    {
+      "id": "running_reload",
+      "name": "Running Reload",
+      "aonId": 504,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=504",
+      "summary": "You can reload your weapon on the move.",
+      "level": 4,
+      "traits": [
+        "Gunslinger",
+        "Ranger"
+      ],
+      "matchedName": "Running Reload",
+      "head": "Stride_close",
+      "actions": 1,
+      "frequency": "at_will",
+      "effectClass": "actionCompression",
+      "scoreHint": 1
+    },
+    {
+      "id": "reactive_strike",
+      "name": "Reactive Strike",
+      "aonId": 5832,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=5832",
+      "summary": "You lash out at a foe that leaves an opening.",
+      "level": 6,
+      "traits": [
+        "Barbarian",
+        "Champion",
+        "Commander",
+        "Exemplar",
+        "Guardian",
+        "Magus",
+        "Swashbuckler"
+      ],
+      "matchedName": "Reactive Strike",
+      "overlayId": "reactive_strike",
+      "preferPacketIds": [
+        "engage_and_hold",
+        "flank_crit_fish"
+      ],
+      "head": "Raise_Shield",
+      "actions": 0,
+      "frequency": "reaction",
+      "effectClass": "reaction",
+      "needsAdjacentFoe": true,
+      "needsReactionAvailable": true,
+      "avoidThirdStrike": true,
+      "scoreHint": 1.5
+    },
+    {
+      "id": "kip_up",
+      "name": "Kip Up",
+      "aonId": 799,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=799",
+      "summary": "Stand up for free without triggering reactions.",
+      "level": 7,
+      "traits": [
+        "General",
+        "Skill"
+      ],
+      "matchedName": "Kip Up",
+      "head": "Step_away",
+      "actions": 0,
+      "frequency": "at_will",
+      "effectClass": "setup",
+      "scoreHint": 0.5
+    },
+    {
+      "id": "opportune_backstab",
+      "name": "Opportune Backstab",
+      "aonId": 575,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=575",
+      "summary": "When your enemy is hit by your ally, you capitalize upon the distraction.",
+      "level": 8,
+      "traits": [
+        "Rogue"
+      ],
+      "matchedName": "Opportune Backstab",
+      "preferPacketIds": [
+        "flank_sneak"
+      ],
+      "head": "Strike_melee",
+      "actions": 0,
+      "frequency": "reaction",
+      "effectClass": "reaction",
+      "needsOffGuard": true,
+      "needsReactionAvailable": true,
+      "scoreHint": 1.8
+    },
+    {
+      "id": "brutal_critical",
+      "name": "Brutal Critical",
+      "aonId": 174,
+      "aonUrl": "https://2e.aonprd.com/Feats.aspx?ID=174",
+      "summary": "Your critical hits are particularly devastating.",
+      "level": 18,
+      "traits": [
+        "Barbarian"
+      ],
+      "matchedName": "Brutal Critical",
+      "preferPacketIds": [
+        "flank_crit_fish",
+        "engage_and_hold"
+      ],
+      "head": "Strike_melee",
+      "actions": 1,
+      "frequency": "at_will",
+      "effectClass": "strikeMod",
+      "scoreHint": 0.8
+    },
+    {
+      "id": "combat_flexibility",
+      "name": "Combat Flexibility",
+      "aonId": null,
+      "aonUrl": null,
+      "summary": "",
+      "level": null,
+      "traits": [],
+      "matchedName": null,
+      "overlayId": "combat_flexibility",
+      "actions": 0,
+      "frequency": "once_combat",
+      "effectClass": "misc",
+      "scoreHint": 1
+    },
+    {
+      "id": "flurry_of_blows",
+      "name": "Flurry of Blows",
+      "aonId": null,
+      "aonUrl": null,
+      "summary": "",
+      "level": null,
+      "traits": [],
+      "matchedName": null,
+      "overlayId": "flurry_of_blows",
+      "preferPacketIds": [
+        "flurry_skirmish",
+        "skirmish_exit"
+      ],
+      "head": "Strike_melee",
+      "actions": 1,
+      "frequency": "at_will",
+      "effectClass": "actionCompression",
+      "needsAdjacentFoe": true,
+      "minActions": 1,
+      "maxMap": 0,
+      "scoreHint": 1.5
+    },
+    {
+      "id": "cast_focus",
+      "name": "Focus Spells",
+      "aonId": null,
+      "aonUrl": null,
+      "summary": "",
+      "level": null,
+      "traits": [],
+      "matchedName": null,
+      "overlayId": "cast_focus",
+      "preferPacketIds": [
+        "save_arbitrage_blast",
+        "control_then_mitigate",
+        "buff_then_blast"
+      ],
+      "head": "Cast_spell",
+      "actions": 2,
+      "frequency": "once_combat",
+      "effectClass": "misc",
+      "minActions": 2,
+      "scoreHint": 1.5
+    },
+    {
+      "id": "sneak_attack",
+      "name": "Sneak Attack",
+      "aonId": null,
+      "aonUrl": null,
+      "summary": "",
+      "level": null,
+      "traits": [],
+      "matchedName": null,
+      "overlayId": "sneak_attack",
+      "preferPacketIds": [
+        "flank_sneak",
+        "skirmish_exit"
+      ],
+      "head": "Strike_melee",
+      "actions": 1,
+      "frequency": "at_will",
+      "effectClass": "strikeMod",
+      "needsOffGuard": true,
+      "maxMap": 0,
+      "scoreHint": 2.5
+    }
+  ]
+}

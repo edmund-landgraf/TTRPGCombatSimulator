@@ -10,6 +10,7 @@ import {
   formatBriefingHtml,
   type LoopBriefing,
 } from "./loopBriefing.js";
+import { prettyReportCss } from "./prettyLoopReport.js";
 
 export type { LoopBriefing } from "./loopBriefing.js";
 export { buildLoopBriefing, ensureLoopBriefing };
@@ -436,14 +437,6 @@ export function renderChallengeMatrixHtml(report: ChallengeMatrixReport): string
     reportWith.cells.filter((c) => c.threat === t).reduce((s, r) => s + r.totalPartyDowned, 0),
   );
 
-  const trivialCells = reportWith.cells.filter((c) => c.threat === "trivial").length;
-  const extremeCells = reportWith.cells.filter((c) => c.threat === "extreme").length;
-  const extremeP3 = reportWith.cells.find((c) => c.partySize === 3 && c.threat === "extreme");
-  const tpk = Number(
-    reportWith.summary.tpkParty3Extreme ??
-      (extremeP3 && extremeP3.wins === 0 ? extremeP3.seeds : 0),
-  );
-
   const tableRows = reportWith.cells
     .map((c) => {
       const tone =
@@ -493,6 +486,19 @@ export function renderChallengeMatrixHtml(report: ChallengeMatrixReport): string
   const when = escapeHtml(new Date(reportWith.generatedAt).toLocaleString());
   const threatLabel = threats.map((t) => (t === "hard" ? "hard(severe)" : t)).join(" / ");
 
+  const partyWins = reportWith.rows.filter((r) => r.winner === "party").length;
+  const fullSurvivors = reportWith.rows.filter((r) => r.partyAlive >= 4).length;
+  const avgRounds = reportWith.rows.length
+    ? (reportWith.rows.reduce((s, r) => s + r.rounds, 0) / reportWith.rows.length).toFixed(1)
+    : "0";
+  const bandOff = reportWith.summary.cellsTotal - reportWith.summary.cellsOk;
+  const statusTone = bandOff === 0 ? "" : "warn";
+  const statusTitle = bandOff === 0 ? "Clean matrix" : "Bands need attention";
+  const statusBody =
+    bandOff === 0
+      ? `Every cell matched its threat-band expectation. ${briefing.howItWent[0] ?? ""}`
+      : `${bandOff} cell${bandOff === 1 ? "" : "s"} off band. ${briefing.headline}`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -500,52 +506,26 @@ export function renderChallengeMatrixHtml(report: ChallengeMatrixReport): string
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>PF2e challenge ladder × party size</title>
 <style>
-:root {
-  --bg: #14181f; --panel: #1c222c; --border: #2e3746; --text: #e7ecf3;
-  --muted: #9aa6b8; --ok: #3d9b7a; --warn: #d4894a; --accent: #c4a35a;
-  --font: "IBM Plex Sans", "Segoe UI", sans-serif;
-  --mono: "IBM Plex Mono", "Consolas", monospace;
-}
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font); padding: 1.5rem; }
-h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
-h2 { margin: 1.5rem 0 0.75rem; font-size: 1.1rem; color: var(--accent); }
-h3 { margin: 0 0 0.65rem; font-size: 0.95rem; color: var(--muted); font-weight: 600; }
-.sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.25rem; }
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
-.stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem 1rem; }
-.stat .v { font-size: 1.6rem; font-weight: 700; }
-.stat .v.ok { color: var(--ok); }
-.stat .v.warn { color: var(--warn); }
-.stat .l { color: var(--muted); font-size: 0.8rem; margin-top: 0.25rem; }
-.callout { background: var(--panel); border: 1px solid var(--border); border-left: 3px solid #6aa8c8; border-radius: 8px; padding: 0.85rem 1rem; margin: 1rem 0; color: #d5dde8; font-size: 0.92rem; line-height: 1.45; }
-.callout strong { color: var(--text); }
-.briefing { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.1rem; margin: 1.25rem 0; }
-.briefing-headline { color: var(--accent); font-weight: 600; margin: 0 0 0.75rem; }
+${prettyReportCss()}
+.briefing { margin: 1.25rem 0; }
+.briefing-headline { color: var(--ok); font-weight: 600; margin: 0 0 0.75rem; }
 .briefing h3 { margin: 0.85rem 0 0.4rem; }
-.briefing ul { margin: 0; padding-left: 1.2rem; color: #d5dde8; font-size: 0.9rem; line-height: 1.45; }
+.briefing ul { margin: 0; padding-left: 1.2rem; color: #d4d4d4; font-size: 0.9rem; line-height: 1.45; }
 .briefing-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 @media (max-width: 900px) { .briefing-cols { grid-template-columns: 1fr; } }
-.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; background: var(--panel); }
-th, td { padding: 0.55rem 0.7rem; text-align: left; border-bottom: 1px solid var(--border); }
-th { color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; background: #181e27; }
-tbody tr:last-child td { border-bottom: none; }
 tr.ok td.party { box-shadow: inset 3px 0 0 var(--ok); }
 tr.warn td.party { box-shadow: inset 3px 0 0 var(--warn); }
-tr.off td.party { box-shadow: inset 3px 0 0 #c45c5c; }
+tr.off td.party { box-shadow: inset 3px 0 0 var(--danger); }
 .matrix-row { cursor: pointer; }
-.matrix-row:hover { background: #232a36; }
-.matrix-row:focus { outline: 1px solid var(--accent-dim); outline-offset: -1px; }
-.wins { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.matrix-row:hover { background: #1f1f1f; }
+.matrix-row:focus { outline: 1px solid #555; outline-offset: -1px; }
+.wins { color: var(--info); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .threat { text-transform: lowercase; }
 .band-ok { color: var(--ok); font-weight: 600; }
-.band-off { color: #c45c5c; font-weight: 600; }
+.band-off { color: var(--danger); font-weight: 600; }
 .hint-row { color: var(--muted); font-size: 0.8rem; margin: -0.35rem 0 0.65rem; }
-.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.25rem; }
-.chart { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 0.95rem 1rem 0.75rem; }
 .modal-backdrop {
-  position: fixed; inset: 0; background: rgba(8, 10, 14, 0.72);
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.72);
   display: none; align-items: center; justify-content: center;
   padding: 1.25rem; z-index: 40;
 }
@@ -555,9 +535,8 @@ tr.off td.party { box-shadow: inset 3px 0 0 #c45c5c; }
   max-height: min(88vh, 900px);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   display: flex; flex-direction: column;
-  box-shadow: 0 16px 48px rgba(0,0,0,0.45);
 }
 .modal-head {
   display: flex; justify-content: space-between; align-items: flex-start;
@@ -569,25 +548,22 @@ tr.off td.party { box-shadow: inset 3px 0 0 #c45c5c; }
   background: transparent; color: var(--muted); border: 1px solid var(--border);
   border-radius: 6px; padding: 0.35rem 0.7rem; cursor: pointer; font-weight: 600;
 }
-.modal-close:hover { color: var(--text); border-color: var(--accent-dim); }
+.modal-close:hover { color: var(--text); border-color: #555; }
 .seed-tabs {
   display: flex; flex-wrap: wrap; gap: 0.4rem;
   padding: 0.65rem 1rem; border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
 .seed-tab {
-  background: #181e27; color: var(--muted); border: 1px solid var(--border);
-  border-radius: 999px; padding: 0.3rem 0.75rem; font-size: 0.8rem; cursor: pointer; font-weight: 600;
+  background: #141414; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.3rem 0.75rem; font-size: 0.8rem; cursor: pointer; font-weight: 600;
 }
-.seed-tab.active { color: #1a1408; background: var(--accent); border-color: var(--accent); }
+.seed-tab.active { color: #111; background: var(--ok); border-color: var(--ok); }
 .modal-body {
   margin: 0; padding: 1rem; overflow: auto; flex: 1; min-height: 0;
   font-family: var(--mono); font-size: 0.78rem; line-height: 1.45;
-  white-space: pre-wrap; color: #d5dde8; background: #12161d;
+  white-space: pre-wrap; color: #d4d4d4; background: #0d0d0d;
 }
 .modal-empty { color: var(--muted); font-family: var(--font); font-size: 0.9rem; }
-@media (max-width: 900px) {
-  .stats, .charts { grid-template-columns: 1fr; }
-}
 </style>
 </head>
 <body>
@@ -595,16 +571,15 @@ tr.off td.party { box-shadow: inset 3px 0 0 #c45c5c; }
   <p class="sub">${reportWith.rows.length} fights · party ${partySizes.join("/")} · ${threatLabel} · ${seedsPerCell} seed${seedsPerCell === 1 ? "" : "s"} each · ${when}<br/>${pathfix}</p>
 
   <div class="stats">
-    <div class="stat"><div class="v ok">${reportWith.summary.cellsOk} / ${reportWith.summary.cellsTotal}</div><div class="l">Band cells OK</div></div>
-    <div class="stat"><div class="v ok">${reportWith.summary.trivialClean} / ${trivialCells || 0}</div><div class="l">Trivial: no deaths</div></div>
-    <div class="stat"><div class="v ok">${reportWith.summary.extremeDeadly} / ${extremeCells || 0}</div><div class="l">Extreme: PC deaths</div></div>
-    <div class="stat"><div class="v warn">TPK×${Number.isFinite(tpk) ? tpk : 0}</div><div class="l">Party×3 vs ogre</div></div>
+    <div class="stat"><div class="v ok">${partyWins} / ${reportWith.rows.length}</div><div class="l">Party wins</div></div>
+    <div class="stat"><div class="v">${fullSurvivors}</div><div class="l">Full-party survivor runs</div></div>
+    <div class="stat"><div class="v">${avgRounds}</div><div class="l">Avg rounds</div></div>
+    <div class="stat"><div class="v ${bandOff ? "warn" : "ok"}">${reportWith.summary.cellsOk} / ${reportWith.summary.cellsTotal}</div><div class="l">Band cells OK</div></div>
   </div>
 
-  <div class="callout">
-    <strong>Expectation check</strong><br/>
-    Trivial should be curb-stomps (no PC deaths, ~0 damage). Extreme should kill someone.
-    Hard maps to PF2e Severe (120 XP @ 4 PCs). Budgets scale ±40 XP per PC vs party of 4.
+  <div class="callout ${statusTone}">
+    <div class="title">${statusTitle}</div>
+    ${escapeHtml(statusBody)}
   </div>
 
   ${formatBriefingHtml(briefing)}

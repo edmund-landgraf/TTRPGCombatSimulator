@@ -14,8 +14,36 @@ import type { DecisionNode } from "../ai/decisionLog.js";
 import type { CombatStateSnapshot } from "../ai/combatStateParser.js";
 import type { GrandmasterTurnPlan } from "../ai/grandmasterLoop.js";
 import { resolveTacticsGroup } from "../ai/tacticsGroups.js";
+import { placeHazardsFromFixture } from "../rules/pf2e/hazard.js";
+import type { Hazard } from "./schemas.js";
 
 export type Condition = { id: string; name: string; value?: number };
+
+/** Placed trap / haunt / environmental hazard instance. */
+export type ActiveHazard = {
+  instanceId: string;
+  hazardId: string;
+  name: string;
+  cells: string[];
+  armed: boolean;
+  triggered: boolean;
+  definition: Hazard;
+};
+
+/** Runtime instance of a progressing poison/disease/curse. */
+export type ActiveAffliction = {
+  id: string;
+  name: string;
+  kind: "poison" | "disease" | "curse" | "other";
+  stage: number;
+  saveDc: number;
+  virulent: boolean;
+  roundsLeft?: number;
+  intervalLeft: number;
+  virulentSuccessStreak: number;
+  /** Snapshot of catalog definition at exposure time. */
+  definition: import("./schemas.js").Affliction;
+};
 
 export type CombatantState = {
   id: string;
@@ -48,6 +76,8 @@ export type CombatantState = {
   /** Optional secondary group blended under the primary. */
   tacticsSecondary?: TacticsGroupId;
   conditions: Condition[];
+  /** Active poisons / diseases / curses progressing by stage. */
+  afflictions: ActiveAffliction[];
   downed: boolean;
   actionsLeft: number;
   reactionAvailable: boolean;
@@ -79,6 +109,28 @@ export type CombatEvent =
       cell: string;
       dmg: number;
       hpAfter: number;
+    }
+  | {
+      t: "hazard_trigger";
+      round: number;
+      actor: string;
+      hazard: string;
+      hazardName: string;
+      instanceId: string;
+      cell: string;
+      dmg: number;
+      hpAfter: number;
+      hit?: boolean;
+      saved?: boolean;
+    }
+  | {
+      t: "hazard_disable";
+      round: number;
+      actor: string;
+      hazard: string;
+      hazardName: string;
+      instanceId: string;
+      success: boolean;
     }
   | {
       /** Spell (or effect) painted lasting terrain onto the grid (e.g. Grease → G). */
@@ -126,6 +178,8 @@ export type CombatEvent =
       dmg: number;
       hpAfter: number;
       map: number;
+      /** Fog / mist: DC 5 flat check before the attack roll (concealed). */
+      concealedFlat?: { d20: number; dc: number; passed: boolean };
     }
   | {
       t: "spell";
@@ -155,6 +209,29 @@ export type CombatEvent =
       actionsSpent: number;
       map: number;
       appliedCondition?: string;
+      appliedAffliction?: string;
+      /** Fog / mist: DC 5 flat check before a single-target spell attack. */
+      concealedFlat?: { d20: number; dc: number; passed: boolean };
+    }
+  | {
+      t: "affliction";
+      round: number;
+      actor: string;
+      affliction: string;
+      afflictionName: string;
+      kind: string;
+      stage: number;
+      dmg: number;
+      hpAfter: number;
+      outcome:
+        | "resisted"
+        | "stage_effect"
+        | "progress_save"
+        | "recovered"
+        | "ended";
+      saveRoll?: number;
+      saveTotal?: number;
+      saveDc?: number;
     }
   | {
       t: "reject";
@@ -247,6 +324,8 @@ export type CombatMemory = {
   delayed: Map<string, DelayedEntry>;
   /** Timed AoE terrain patches still on the map. */
   activeTerrain: ActiveTerrainEffect[];
+  /** Placed catalog hazards (traps / haunts / environmental). */
+  activeHazards: ActiveHazard[];
   events: CombatEvent[];
   /** Dual-commander decision tree (party-commander / enemy-commander). */
   decisionLog: DecisionNode[];
@@ -293,6 +372,7 @@ export function createMemory(
       tacticsGroup: resolveTacticsGroup(c.tacticsGroup, c.role),
       tacticsSecondary: c.tacticsSecondary,
       conditions: [],
+      afflictions: [],
       downed: false,
       actionsLeft: 3,
       reactionAvailable: true,
@@ -302,7 +382,7 @@ export function createMemory(
       isShieldRaised: false,
     });
   }
-  return {
+  const mem: CombatMemory = {
     encounterId: fixture.id,
     name: fixture.name,
     ruleset: "pf2e",
@@ -314,6 +394,7 @@ export function createMemory(
     initIndex: 0,
     delayed: new Map(),
     activeTerrain: [],
+    activeHazards: [],
     events: [],
     decisionLog: [],
     grandmasterPlans: [],
@@ -321,6 +402,10 @@ export function createMemory(
     notes,
     hpAtRoundStart: new Map(),
   };
+  if (fixture.hazards?.length) {
+    placeHazardsFromFixture(mem, fixture.hazards);
+  }
+  return mem;
 }
 
 export function living(mem: CombatMemory, side?: "party" | "enemy"): CombatantState[] {

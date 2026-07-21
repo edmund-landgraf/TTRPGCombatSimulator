@@ -45,6 +45,8 @@ export function renderAscii(
           if (cell.tags.includes("grease")) {
             const g = terrainGlyphFor("grease");
             row.push(` ${g} `);
+          } else if (cell.tags.includes("fog")) {
+            row.push(` ${terrainGlyphFor("fog")} `);
           } else if (cell.tags.includes("barricade")) row.push(" B ");
           else if (cell.tags.includes("cover")) row.push(" = ");
           else if (cell.tags.includes("hazardous")) row.push(" ! ");

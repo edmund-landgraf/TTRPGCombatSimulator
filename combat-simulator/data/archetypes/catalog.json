@@ -1,0 +1,432 @@
+{
+  "generatedAt": "2026-07-21T00:00:49.137Z",
+  "source": "elastic:category:archetype -trait:mythic",
+  "count": 24,
+  "note": "Combat-ready ArchetypeSchema stubs. Tags go on combatant.archetypes[]; overlays/capabilities applied in buildProfile.",
+  "archetypes": [
+    {
+      "id": "acrobat",
+      "name": "Acrobat",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [
+        "skirmish_exit"
+      ],
+      "scoreHints": {
+        "actionCompression": 1
+      },
+      "aonId": 45,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=45",
+      "summary": "You have trained your body to perform incredible, seemingly superhuman feats of grace. You move in ways that leave your opponents caught off guard …"
+    },
+    {
+      "id": "archer",
+      "name": "Archer",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [
+        "kite_and_shoot"
+      ],
+      "scoreHints": {
+        "rangedPressure": 2.5,
+        "preferCover": 1
+      },
+      "roleHint": "ranger_archer",
+      "aonId": 47,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=47",
+      "summary": "Bows of all types are powerful weapons. Generals and hunters alike recognize the power in dealing death from long distances, and from behind cover. …"
+    },
+    {
+      "id": "assassin",
+      "name": "Assassin",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "sneak_attack"
+      ],
+      "preferPacketIds": [
+        "flank_sneak"
+      ],
+      "scoreHints": {
+        "flankSetup": 2.5,
+        "offGuardStrike": 2
+      },
+      "aonId": 48,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=48",
+      "summary": "Targeted killing through stealth and subterfuge is the expertise of an assassin. While assassins are skilled in ending lives and many are evil, some …"
+    },
+    {
+      "id": "barbarian_dedication",
+      "name": "Barbarian",
+      "kind": "multiclass",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "sudden_charge"
+      ],
+      "preferPacketIds": [
+        "sudden_charge_crash"
+      ],
+      "scoreHints": {
+        "closeAndStrike": 2
+      },
+      "roleHint": "barbarian",
+      "aonId": 2,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=2",
+      "summary": "There’s a rage deep inside you that sometimes breaks loose, granting you some of the might of a barbarian in addition to your other abilities."
+    },
+    {
+      "id": "bard_dedication",
+      "name": "Bard",
+      "kind": "multiclass",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "inspire_courage"
+      ],
+      "preferPacketIds": [
+        "buff_then_blast"
+      ],
+      "scoreHints": {
+        "mathBuffFirst": 2
+      },
+      "roleHint": "bard",
+      "aonId": 3,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=3",
+      "summary": "A muse has called you to dabble in occult lore, allowing you to cast a few spells. The deeper you delve, the more powerful your performances become."
+    },
+    {
+      "id": "bastion",
+      "name": "Bastion",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "shield_block"
+      ],
+      "preferPacketIds": [
+        "engage_and_hold"
+      ],
+      "scoreHints": {
+        "shieldLayer": 2
+      },
+      "aonId": 49,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=49",
+      "summary": "Some say that a good offense is the best defense, but you find such boasting smacks of overconfidence. In your experience, the best defense is a …"
+    },
+    {
+      "id": "beastmaster",
+      "name": "Beastmaster",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [],
+      "scoreHints": {
+        "companionAssist": 1
+      },
+      "aonId": 50,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=50",
+      "summary": "You attract the loyalty of animals, and as your powers increase you can command more of them, briefly inhabit their body to perceive what they …"
+    },
+    {
+      "id": "cavalier",
+      "name": "Cavalier",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [
+        "sudden_charge_crash",
+        "engage_and_hold"
+      ],
+      "scoreHints": {
+        "closeAndStrike": 1.8
+      },
+      "aonId": 53,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=53",
+      "summary": "You are a skilled and dedicated warrior of the battlefield who specializes in fighting astride a powerful animal companion that serves as your mount. …"
+    },
+    {
+      "id": "champion_dedication",
+      "name": "Champion",
+      "kind": "multiclass",
+      "dedicationLevel": 2,
+      "overlayId": "champion_dedication",
+      "grantCapabilities": [
+        "reactive_strike"
+      ],
+      "preferPacketIds": [
+        "engage_and_hold"
+      ],
+      "scoreHints": {
+        "guardianPlant": 1
+      },
+      "roleHint": "champion",
+      "aonId": 4,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=4",
+      "summary": "You have sworn a solemn oath to your deity, who has granted you champion powers to aid you in your cause."
+    },
+    {
+      "id": "cleric_dedication",
+      "name": "Cleric",
+      "kind": "multiclass",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "heal_font"
+      ],
+      "preferPacketIds": [
+        "focus_fire_wounded"
+      ],
+      "scoreHints": {
+        "triage": 2
+      },
+      "roleHint": "cleric",
+      "aonId": 5,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=5",
+      "summary": "You are an ordained priest of your deity and have even learned how to cast a few divine spells. Though your main training lies elsewhere, your …"
+    },
+    {
+      "id": "dual_weapon_warrior",
+      "name": "Dual-Weapon Warrior",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [
+        "engage_and_hold",
+        "flank_crit_fish"
+      ],
+      "scoreHints": {
+        "actionCompression": 1.8
+      },
+      "aonId": 57,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=57",
+      "summary": "You're able to effortlessly fight with multiple weapons simultaneously, weaving your weapons together into a storm of quick attacks. To you, …"
+    },
+    {
+      "id": "duelist",
+      "name": "Duelist",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [
+        "flank_crit_fish",
+        "engage_and_hold"
+      ],
+      "scoreHints": {
+        "offGuardStrike": 1.5
+      },
+      "aonId": 58,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=58",
+      "summary": "Across the world, students in martial academies practice with their blades to master one-on-one combat. The libraries of such schools hold deep …"
+    },
+    {
+      "id": "fighter_dedication",
+      "name": "Fighter",
+      "kind": "multiclass",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "reactive_strike"
+      ],
+      "preferPacketIds": [
+        "engage_and_hold",
+        "flank_crit_fish"
+      ],
+      "scoreHints": {
+        "martialPressure": 1.5
+      },
+      "roleHint": "fighter",
+      "aonId": 7,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=7",
+      "summary": "You have spent time learning the art of warfare, increasing your skill with martial arms and at wearing armor. With further training, you can become …"
+    },
+    {
+      "id": "undead",
+      "name": "Ghoul",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "overlayId": "undead",
+      "grantCapabilities": [],
+      "preferPacketIds": [],
+      "scoreHints": {
+        "ignoreFear": 0.5
+      },
+      "aonId": 178,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=178",
+      "summary": "You died from the necrotic disease known as ghoul fever and rose anew as a ravenous ghoul , forever craving the flesh of sapient creatures. While …"
+    },
+    {
+      "id": "marshal",
+      "name": "Marshal",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [
+        "engage_and_hold",
+        "buff_then_blast"
+      ],
+      "scoreHints": {
+        "mathBuffFirst": 1.5,
+        "guardianPlant": 1
+      },
+      "aonId": 66,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=66",
+      "summary": "Marshals are leaders, first and foremost. Marshals can come from any class or background, though they all share a willingness to sacrifice their own …"
+    },
+    {
+      "id": "mauler",
+      "name": "Mauler",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [
+        "engage_and_hold"
+      ],
+      "scoreHints": {
+        "closeAndStrike": 2
+      },
+      "aonId": 68,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=68",
+      "summary": "You shove your way through legions of foes, knock enemies on all sides to the ground, and deal massive blows to anyone or anything that comes near."
+    },
+    {
+      "id": "medic",
+      "name": "Medic",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "heal_font"
+      ],
+      "preferPacketIds": [
+        "focus_fire_wounded"
+      ],
+      "scoreHints": {
+        "triage": 2.5
+      },
+      "roleHint": "cleric",
+      "aonId": 69,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=69",
+      "summary": "You've studied countless techniques for providing medical aid, making you a peerless doctor and healer."
+    },
+    {
+      "id": "monk_dedication",
+      "name": "Monk",
+      "kind": "multiclass",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "flurry_of_blows"
+      ],
+      "preferPacketIds": [
+        "flurry_skirmish"
+      ],
+      "scoreHints": {
+        "actionCompression": 1.5
+      },
+      "roleHint": "monk",
+      "aonId": 8,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=8",
+      "summary": "Monastic training has taught you martial arts and allowed you to hone your mind, body, and spirit to new heights."
+    },
+    {
+      "id": "poisoner",
+      "name": "Poisoner",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [],
+      "scoreHints": {
+        "afflictionSetup": 1.5
+      },
+      "aonId": 71,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=71",
+      "summary": "People are so delightfully fragile when exposed to the glories of nature. The bite of a certain serpent makes the blood congeal to jelly. A …"
+    },
+    {
+      "id": "ranger_dedication",
+      "name": "Ranger",
+      "kind": "multiclass",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [
+        "kite_and_shoot"
+      ],
+      "scoreHints": {
+        "rangedPressure": 1.5
+      },
+      "roleHint": "ranger_archer",
+      "aonId": 9,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=9",
+      "summary": "You have studied hunting, tracking, and wilderness survival, adding a ranger’s tools to your skill set."
+    },
+    {
+      "id": "rogue_dedication",
+      "name": "Rogue",
+      "kind": "multiclass",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "sneak_attack"
+      ],
+      "preferPacketIds": [
+        "flank_sneak",
+        "skirmish_exit"
+      ],
+      "scoreHints": {
+        "flankSetup": 2
+      },
+      "roleHint": "rogue",
+      "aonId": 10,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=10",
+      "summary": "You’ve learned to sneak, steal, and disable traps. With time and luck, you’ll become capable of moving through the shadows, striking unseen, and …"
+    },
+    {
+      "id": "sentinel",
+      "name": "Sentinel",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "shield_block"
+      ],
+      "preferPacketIds": [
+        "engage_and_hold"
+      ],
+      "scoreHints": {
+        "shieldLayer": 1.5,
+        "guardianPlant": 1.2
+      },
+      "aonId": 76,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=76",
+      "summary": "Armor offers solid, reassuring protection in combat, and as someone who faces danger on a regular basis, you have made it your business to get the …"
+    },
+    {
+      "id": "snarecrafter",
+      "name": "Snarecrafter",
+      "kind": "other",
+      "dedicationLevel": 2,
+      "grantCapabilities": [],
+      "preferPacketIds": [],
+      "scoreHints": {
+        "hazardSetup": 1.5
+      },
+      "aonId": 78,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=78",
+      "summary": "You're able to take ordinary materials and use them to create deadly snares , special traps that you can rig up quickly when the situation demands. …"
+    },
+    {
+      "id": "wizard_dedication",
+      "name": "Wizard",
+      "kind": "multiclass",
+      "dedicationLevel": 2,
+      "grantCapabilities": [
+        "cast_focus"
+      ],
+      "preferPacketIds": [
+        "save_arbitrage_blast",
+        "control_then_mitigate"
+      ],
+      "scoreHints": {
+        "focusSpell": 1.5
+      },
+      "roleHint": "wizard",
+      "aonId": 12,
+      "aonUrl": "https://2e.aonprd.com/Archetypes.aspx?ID=12",
+      "summary": "You have dabbled in the arcane arts and, through discipline and academic study, learned how to cast a few spells."
+    }
+  ]
+}

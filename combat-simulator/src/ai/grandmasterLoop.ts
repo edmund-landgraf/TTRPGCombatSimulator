@@ -76,6 +76,13 @@ export type PacketSelectionLog = {
   chosenPacketId: string;
   chosenScore: number;
   alternates: { id: string; score: number }[];
+  /** Combat-feat attempt gates that contributed to the chosen packet. */
+  featAttempts: {
+    id: string;
+    attempt: boolean;
+    scoreHint: number;
+    reason: string;
+  }[];
 };
 
 export type GrandmasterTurnPlan = {
@@ -362,7 +369,7 @@ export function runGrandmasterLoop(
   const s4Nodes: string[] = [];
   const hints = gatherBattlefieldHints(mem, actor);
   if (target && isFlanking(mem, actor, target)) hints.alreadyFlanking = true;
-  const composed = composePackets(buildProfile, hints);
+  const composed = composePackets(mem, actor, buildProfile, hints);
   const { chosen, alternates } = selectPacketsForBand(composed, buildProfile, hints);
   packetSelection = {
     rolePacket: buildProfile.rolePacket,
@@ -375,6 +382,12 @@ export function runGrandmasterLoop(
     chosenPacketId: chosen.id,
     chosenScore: chosen.score,
     alternates: alternates.map((a) => ({ id: a.id, score: a.score })),
+    featAttempts: chosen.featAttempts.map((f) => ({
+      id: f.featId,
+      attempt: f.attempt,
+      scoreHint: f.scoreHint,
+      reason: f.reason,
+    })),
   };
   const matrix = packetToMatrix(chosen);
   s4Findings.push(
@@ -384,6 +397,17 @@ export function runGrandmasterLoop(
   s4Findings.push(
     `caps=[${buildProfile.capabilities.join(",") || "—"}] overlays=[${packetSelection.overlays.join(",") || "—"}]`,
   );
+  if (packetSelection.featAttempts.length) {
+    s4Findings.push(
+      `feat attempts: ${packetSelection.featAttempts
+        .map(
+          (f) =>
+            `${f.id}:${f.attempt ? "try" : "skip"}(${f.reason})` +
+            (f.attempt ? `+${f.scoreHint.toFixed(1)}` : ""),
+        )
+        .join("; ")}`,
+    );
+  }
   s4Findings.push(
     `chosen packet: ${chosen.id} score=${chosen.score.toFixed(1)}` +
       (alternates.length
@@ -610,6 +634,13 @@ export function formatGrandmasterPlan(plan: GrandmasterTurnPlan): string[] {
       `  BUILD: caps=[${ps.capabilities.join(",") || "—"}] overlays=[${ps.overlays.join(",") || "—"}]` +
         (ps.bandBumped ? " band↑" : ""),
     );
+    if (ps.featAttempts?.length) {
+      lines.push(
+        `  FEATS: ${ps.featAttempts
+          .map((f) => `${f.id}:${f.attempt ? "try" : "skip"}`)
+          .join(", ")}`,
+      );
+    }
     if (ps.alternates.length) {
       lines.push(
         `  REJECTED: ${ps.alternates.map((a) => `${a.id}@${a.score.toFixed(1)}`).join(", ")}`,

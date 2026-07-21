@@ -1,4 +1,12 @@
-import type { MapCell } from "../memory/schemas.js";
+import type { HazardPlacement, MapCell } from "../memory/schemas.js";
+
+/** Default catalog hazards for the classic-four map. */
+export function classicHazardPlacements(): HazardPlacement[] {
+  return [
+    { hazardId: "hidden_pit", cells: [{ x: 5, y: 5 }], disabled: false },
+    { hazardId: "spear_launcher", cells: [{ x: 8, y: 6 }], disabled: false },
+  ];
+}
 
 /** 12x10 classic-four map: walls border, cover on y4, open floor elsewhere. */
 export function buildClassicFourCells(width = 12, height = 10): MapCell[] {

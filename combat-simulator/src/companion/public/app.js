@@ -53,7 +53,10 @@ const els = {
   loopProgress: $("loopProgress"),
   loopReportFrame: $("loopReportFrame"),
   loopBriefing: $("loopBriefing"),
+  loopBriefingStats: $("loopBriefingStats"),
+  loopBriefingCallout: $("loopBriefingCallout"),
   loopBriefingHeadline: $("loopBriefingHeadline"),
+  loopBriefingStatus: $("loopBriefingStatus"),
   loopBriefingHow: $("loopBriefingHow"),
   loopBriefingBest: $("loopBriefingBest"),
   loopBriefingWorst: $("loopBriefingWorst"),
@@ -69,14 +72,24 @@ const els = {
   saveTacticsLogs: $("saveTacticsLogs"),
   pauseEachRound: $("pauseEachRound"),
   pauseEachTurn: $("pauseEachTurn"),
+  controlPartyTurns: $("controlPartyTurns"),
   settingsSaveBtn: $("settingsSaveBtn"),
   settingsMsg: $("settingsMsg"),
+  initRoster: $("initRoster"),
+  actionPanel: $("actionPanel"),
+  actionPanelList: $("actionPanelList"),
+  actionPanelHint: $("actionPanelHint"),
 };
 
 const SETTINGS_KEY = "combatStudio.settings";
 
 function defaultSettings() {
-  return { saveTacticsLogs: true, pauseEachRound: true, pauseEachTurn: false };
+  return {
+    saveTacticsLogs: true,
+    pauseEachRound: true,
+    pauseEachTurn: false,
+    controlPartyTurns: true,
+  };
 }
 
 function readLocalSettings() {
@@ -91,6 +104,10 @@ function readLocalSettings() {
         typeof parsed.pauseEachRound === "boolean" ? parsed.pauseEachRound : true,
       pauseEachTurn:
         typeof parsed.pauseEachTurn === "boolean" ? parsed.pauseEachTurn : false,
+      controlPartyTurns:
+        typeof parsed.controlPartyTurns === "boolean"
+          ? parsed.controlPartyTurns
+          : true,
     };
   } catch {
     return defaultSettings();
@@ -132,6 +149,10 @@ async function loadSettingsIntoModal() {
         typeof remote.pauseEachTurn === "boolean"
           ? remote.pauseEachTurn
           : settings.pauseEachTurn,
+      controlPartyTurns:
+        typeof remote.controlPartyTurns === "boolean"
+          ? remote.controlPartyTurns
+          : settings.controlPartyTurns,
     };
     writeLocalSettings(settings);
   } catch {
@@ -140,6 +161,7 @@ async function loadSettingsIntoModal() {
   if (els.saveTacticsLogs) els.saveTacticsLogs.checked = !!settings.saveTacticsLogs;
   if (els.pauseEachRound) els.pauseEachRound.checked = !!settings.pauseEachRound;
   if (els.pauseEachTurn) els.pauseEachTurn.checked = !!settings.pauseEachTurn;
+  if (els.controlPartyTurns) els.controlPartyTurns.checked = !!settings.controlPartyTurns;
 }
 
 function settingsSummary(settings) {
@@ -147,6 +169,7 @@ function settingsSummary(settings) {
   bits.push(settings.saveTacticsLogs ? "tactical logs on" : "tactical logs off");
   bits.push(settings.pauseEachRound ? "pause rounds" : "no round pause");
   bits.push(settings.pauseEachTurn ? "pause turns" : "no turn pause");
+  bits.push(settings.controlPartyTurns ? "control party" : "AI party");
   return bits.join(" · ") + ".";
 }
 
@@ -155,6 +178,7 @@ async function persistSettingsFromModal() {
     saveTacticsLogs: !!els.saveTacticsLogs?.checked,
     pauseEachRound: !!els.pauseEachRound?.checked,
     pauseEachTurn: !!els.pauseEachTurn?.checked,
+    controlPartyTurns: !!els.controlPartyTurns?.checked,
   };
   writeLocalSettings(settings);
   const remote = await apiJson("/api/settings", {
@@ -507,6 +531,7 @@ function cellTerrainClass(tags) {
   if (tags.includes("wall_v")) return "cell-wall-v";
   if (tags.includes("blocking")) return "cell-blocking";
   if (tags.includes("grease")) return "cell-grease";
+  if (tags.includes("fog")) return "cell-fog";
   if (tags.includes("barricade")) return "cell-barricade";
   if (tags.includes("cover")) return "cell-cover";
   if (tags.includes("hazardous")) return "cell-hazardous";
@@ -517,7 +542,11 @@ function cellTerrainClass(tags) {
 function boardFingerprint(board) {
   if (!board?.width) return "";
   const toks = (board.tokens || [])
-    .map((t) => `${t.id}:${t.x},${t.y},${t.downed ? 1 : 0}`)
+    .map((t) => {
+      const st = (t.statuses || []).join(",");
+      const vital = t.vitalLabel || "";
+      return `${t.id}:${t.x},${t.y},${t.downed ? 1 : 0},${t.vitalState || ""}:${vital}:${st}`;
+    })
     .sort()
     .join(";");
   const terrain = (board.cells || [])
@@ -527,10 +556,115 @@ function boardFingerprint(board) {
   return `${board.width}x${board.height}|${toks}|${terrain}`;
 }
 
+function theaterFingerprint(theater, activeActorId) {
+  if (!theater && !activeActorId) return "";
+  const t = theater || {};
+  return [
+    activeActorId || "",
+    t.awaitingPlayer ? 1 : 0,
+    (t.choices || []).map((c) => c.key).join(""),
+    (t.reachableCells || []).length,
+    (t.inRangeCells || []).length,
+    (t.noLosCells || []).length,
+    (t.coverFromActor || []).length,
+    (t.reachableCells || []).slice(0, 8).join(","),
+  ].join("|");
+}
+
+/** Live theater opts for sticky battle map redraws. */
+let liveTheaterOpts = {
+  activeActorId: null,
+  theater: null,
+};
+
+function cellIdFromXY(x, y) {
+  return `x${String(x).padStart(2, "0")}y${String(y).padStart(2, "0")}`;
+}
+
+function setAsCellSet(arr) {
+  return new Set(arr || []);
+}
+
+function clearChoiceHoverHighlights(mapEl) {
+  mapEl?.querySelectorAll?.(".cell-choice-hl").forEach((el) => {
+    el.classList.remove("cell-choice-hl");
+  });
+}
+
+function applyChoiceHoverHighlight(mapEl, cellIds) {
+  clearChoiceHoverHighlights(mapEl);
+  if (!mapEl || !cellIds?.length) return;
+  for (const id of cellIds) {
+    const m = /^x(\d+)y(\d+)$/i.exec(id);
+    if (!m) continue;
+    const cell = mapEl.querySelector(
+      `.battle-cell[data-x="${Number(m[1])}"][data-y="${Number(m[2])}"]`,
+    );
+    cell?.classList.add("cell-choice-hl");
+  }
+}
+
+/** Short hover chip label from a full status string. */
+function shortStatusLabel(status) {
+  const s = String(status || "").trim();
+  if (!s) return "";
+  const lower = s.toLowerCase();
+  // "persistent fire 1d6" → "fire 1d6"; "persistent damage (fire)" → keep short
+  const pers = lower.match(/^persistent\s+(.+)$/);
+  if (pers) return pers[1];
+  if (lower === "burning") return "fire";
+  if (lower === "bleeding" || lower === "bleed") return "bleed";
+  return s;
+}
+
+/** Cap statuses for the hover strip: up to 2 labels, then +N. */
+function formatStatusHoverText(statuses) {
+  const shorts = (statuses || []).map(shortStatusLabel).filter(Boolean);
+  if (!shorts.length) return "";
+  if (shorts.length <= 2) return shorts.join(", ");
+  return `${shorts.slice(0, 2).join(", ")} +${shorts.length - 2}`;
+}
+
+function terrainEffectHint(tags) {
+  if (!tags?.length) return "";
+  if (tags.includes("grease")) return "Grease (difficult)";
+  if (tags.includes("fog")) return "Fog (concealed)";
+  if (tags.includes("hazardous")) return "Hazardous";
+  if (tags.includes("barricade")) return "Barricade (soft cover)";
+  if (tags.includes("difficult")) return "Difficult terrain";
+  if (tags.includes("cover")) return "Cover";
+  return "";
+}
+
+/** Corner chip when a token occupies effect terrain. */
+function terrainCornerChip(tags) {
+  if (!tags?.length) return "";
+  if (tags.includes("grease")) {
+    return `<span class="cell-corner grease" aria-hidden="true">G</span>`;
+  }
+  if (tags.includes("fog")) {
+    return `<span class="cell-corner fog" aria-hidden="true">F</span>`;
+  }
+  if (tags.includes("hazardous")) {
+    return `<span class="cell-corner hazardous" aria-hidden="true">^</span>`;
+  }
+  if (tags.includes("barricade")) {
+    return `<span class="cell-corner barricade" aria-hidden="true">B</span>`;
+  }
+  return "";
+}
+
+function tokenStatusStripHtml(statuses) {
+  const text = formatStatusHoverText(statuses);
+  if (!text) return "";
+  return `<span class="token-status">${escapeHtml(text)}</span>`;
+}
+
 const TERRAIN_LEGEND = [
   { cls: "cell-floor", label: "floor" },
   { cls: "cell-difficult", label: "difficult" },
   { cls: "cell-grease", label: "grease (G)" },
+  { cls: "cell-fog", label: "fog (F)" },
   { cls: "cell-hazardous", label: "hazardous" },
   { cls: "cell-cover", label: "cover" },
   { cls: "cell-barricade", label: "barricade (B)" },
@@ -558,8 +692,12 @@ function renderLegend(el, board) {
   el.innerHTML = parts.join("");
 }
 
-/** Cell markup for a board snapshot (full redraw; no animation). */
-function battleMapCellsHtml(board, editable = false) {
+/**
+ * Cell markup for a board snapshot.
+ * @param opts.activeActorId — ring the active token
+ * @param opts.theater — reach / range / LOS / cover cell sets
+ */
+function battleMapCellsHtml(board, editable = false, opts = {}) {
   const byCell = new Map();
   for (const t of board.tokens || []) {
     const key = `${t.x},${t.y}`;
@@ -570,6 +708,12 @@ function battleMapCellsHtml(board, editable = false) {
   for (const c of board.cells || []) {
     tagByCell.set(`${c.x},${c.y}`, c.tags || []);
   }
+  const theater = opts.theater || null;
+  const activeId = opts.activeActorId || null;
+  const reach = setAsCellSet(theater?.reachableCells);
+  const range = setAsCellSet(theater?.inRangeCells);
+  const noLos = setAsCellSet(theater?.noLosCells);
+  const cover = setAsCellSet(theater?.coverFromActor);
   const cells = [];
   for (let y = 1; y <= board.height; y++) {
     for (let x = 1; x <= board.width; x++) {
@@ -577,9 +721,21 @@ function battleMapCellsHtml(board, editable = false) {
       const tags = tagByCell.get(key) || ["blocking"];
       const terrain = cellTerrainClass(tags);
       const toks = byCell.get(key) || [];
+      const effectHint = terrainEffectHint(tags);
+      const coord = cellIdFromXY(x, y);
+      const hl = [];
+      if (reach.has(coord)) hl.push("cell-reach");
+      if (range.has(coord)) hl.push("cell-range");
+      if (noLos.has(coord)) hl.push("cell-no-los");
+      if (cover.has(coord)) hl.push("cell-cover-cue");
+      const cellTitle = effectHint ? `${effectHint} — ${coord}` : coord;
       let inner = "";
       if (toks.length === 0 && tags.includes("grease")) {
         inner = `<span class="cell-marker grease" title="Grease (difficult)">G</span>`;
+      } else if (toks.length === 0 && tags.includes("fog")) {
+        inner = `<span class="cell-marker fog" title="Fog (concealed)">F</span>`;
+      } else if (toks.length === 0 && tags.includes("hazardous")) {
+        inner = `<span class="cell-marker hazardous" title="Hazardous">^</span>`;
       } else if (toks.length === 0 && tags.includes("barricade")) {
         inner = `<span class="cell-marker barricade" title="Barricade (soft cover)">B</span>`;
       } else if (toks.length === 1) {
@@ -589,35 +745,54 @@ function battleMapCellsHtml(board, editable = false) {
             ? ` draggable="true" data-token-id="${escapeHtml(t.id)}"`
             : "";
         const vital = t.vitalLabel && t.vitalState && t.vitalState !== "ok" ? ` — ${t.vitalLabel}` : "";
+        const statusFull = (t.statuses || []).length ? ` — ${(t.statuses || []).join(", ")}` : "";
         const deadCls = t.vitalState === "dead" ? " dead" : t.downed ? " downed" : "";
-        inner = `<span class="battle-token ${t.side}${deadCls}"${drag} title="${escapeHtml(
-          `${t.name} (${t.id})${vital}`,
-        )}">${escapeHtml(t.tokenChar)}</span>`;
+        const activeCls = activeId && t.id === activeId ? " token-active" : "";
+        const strip = tokenStatusStripHtml(t.statuses);
+        inner =
+          terrainCornerChip(tags) +
+          `<span class="battle-token ${t.side}${deadCls}${activeCls}"${drag} title="${escapeHtml(
+            `${t.name} (${t.id})${vital}${statusFull}`,
+          )}">${strip}${escapeHtml(t.tokenChar)}</span>`;
       } else if (toks.length > 1) {
         // Slash join so "b"+"a" reads "b/a" (not "ba" mistaken for one unit).
         const label = toks.map((t) => t.tokenChar).join("/");
+        const living = toks.filter((t) => !t.downed);
+        const statusSources = living.length ? living : toks;
+        const stackedStatuses = statusSources.flatMap((t) => t.statuses || []);
         const title = toks
-          .map((t) =>
-            t.vitalLabel && t.vitalState && t.vitalState !== "ok"
-              ? `${t.name} (${t.vitalLabel})`
-              : t.name,
-          )
+          .map((t) => {
+            const vital =
+              t.vitalLabel && t.vitalState && t.vitalState !== "ok"
+                ? ` (${t.vitalLabel})`
+                : "";
+            const st = (t.statuses || []).length ? ` [${(t.statuses || []).join(", ")}]` : "";
+            return `${t.name}${vital}${st}`;
+          })
           .join(", ");
         const side = toks.some((t) => t.side === "enemy") ? "enemy" : "party";
         const downed = toks.every((t) => t.downed) ? " downed" : "";
         const deadCls = toks.every((t) => t.vitalState === "dead") ? " dead" : downed;
+        const activeCls =
+          activeId && toks.some((t) => t.id === activeId) ? " token-active" : "";
         // Stacked: drag the first living token
         const live = toks.find((t) => !t.downed);
         const drag =
           editable && live
             ? ` draggable="true" data-token-id="${escapeHtml(live.id)}"`
             : "";
-        inner = `<span class="battle-token stack ${side}${deadCls}"${drag} title="${escapeHtml(
-          title,
-        )}">${escapeHtml(label.slice(0, 5))}</span>`;
+        const strip = tokenStatusStripHtml(stackedStatuses);
+        inner =
+          terrainCornerChip(tags) +
+          `<span class="battle-token stack ${side}${deadCls}${activeCls}"${drag} title="${escapeHtml(
+            title,
+          )}">${strip}${escapeHtml(label.slice(0, 5))}</span>`;
       }
+      const hlCls = hl.length ? ` ${hl.join(" ")}` : "";
       cells.push(
-        `<div class="battle-cell ${terrain}" data-x="${x}" data-y="${y}" title="x${String(x).padStart(2, "0")}y${String(y).padStart(2, "0")}">${inner}</div>`,
+        `<div class="battle-cell ${terrain}${hlCls}" data-x="${x}" data-y="${y}" title="${escapeHtml(
+          cellTitle,
+        )}">${inner}</div>`,
       );
     }
   }
@@ -741,7 +916,14 @@ function renderBoardInto(mapEl, board, opts = {}) {
   }
   const editable = !!opts.editable;
   const brush = mapEl === els.setupMap ? activeBrush() : "";
-  const fp = `${boardFingerprint(board)}|e${editable ? 1 : 0}|b${brush}|p${opts.paintable ? 1 : 0}`;
+  const useTheater = mapEl === els.battleMap;
+  const theater = useTheater ? opts.theater || liveTheaterOpts.theater : null;
+  const activeActorId = useTheater
+    ? opts.activeActorId || liveTheaterOpts.activeActorId
+    : null;
+  const fp = `${boardFingerprint(board)}|e${editable ? 1 : 0}|b${brush}|p${
+    opts.paintable ? 1 : 0
+  }|${useTheater ? theaterFingerprint(theater, activeActorId) : ""}`;
   if (mapEl.dataset.fp === fp) {
     mapEl.classList.toggle("editable", editable);
     mapEl.classList.toggle("paint-mode", !!brush && !!opts.paintable);
@@ -750,7 +932,10 @@ function renderBoardInto(mapEl, board, opts = {}) {
     return;
   }
   mapEl.style.gridTemplateColumns = `repeat(${board.width}, var(--cell))`;
-  mapEl.innerHTML = battleMapCellsHtml(board, editable);
+  mapEl.innerHTML = battleMapCellsHtml(board, editable, {
+    theater: useTheater ? theater : null,
+    activeActorId: useTheater ? activeActorId : null,
+  });
   mapEl.dataset.fp = fp;
   mapEl.classList.toggle("editable", editable);
   mapEl.classList.toggle("paint-mode", !!brush && !!opts.paintable);
@@ -802,9 +987,14 @@ function renderBattleMap(board, opts = {}) {
     els.battleMap.innerHTML = "";
     delete els.battleMap.dataset.fp;
     if (els.deployHint) els.deployHint.hidden = true;
+    liveTheaterOpts = { activeActorId: null, theater: null };
     return;
   }
   const editable = !!opts.editable;
+  liveTheaterOpts = {
+    activeActorId: opts.activeActorId || null,
+    theater: opts.theater || null,
+  };
   renderLegend(els.battleLegend, board);
   if (els.battleMapTitle) {
     els.battleMapTitle.textContent = editable ? "Battle map (drag tokens)" : "Map";
@@ -818,11 +1008,174 @@ function renderBattleMap(board, opts = {}) {
   els.battleMapWrap.hidden = false;
   renderBoardInto(els.battleMap, board, {
     editable,
+    theater: liveTheaterOpts.theater,
+    activeActorId: liveTheaterOpts.activeActorId,
     endpoint: "/api/combat/move-token",
     onMoved: async () => {
       await refresh();
     },
   });
+}
+
+function combatantById(ctx, id) {
+  return (ctx?.combatants || []).find((c) => c.id === id);
+}
+
+function renderInitRoster(ctx) {
+  const wrap = els.initRoster;
+  const initList = $("initList");
+  const rosterList = $("rosterList");
+  if (!wrap || !initList || !rosterList) return;
+  if (!ctx?.combatants?.length) {
+    wrap.hidden = true;
+    initList.innerHTML = "";
+    rosterList.innerHTML = "";
+    return;
+  }
+  wrap.hidden = false;
+  const byId = new Map((ctx.combatants || []).map((c) => [c.id, c]));
+  const order =
+    ctx.initiative?.length > 0
+      ? ctx.initiative
+      : ctx.combatants.map((c) => c.id);
+  initList.innerHTML = order
+    .map((id) => {
+      const c = byId.get(id);
+      if (!c) return "";
+      const flags = [];
+      if (ctx.activeActorId === id) flags.push("active");
+      if (ctx.nextActorId === id) flags.push("next");
+      if (ctx.justActedId === id) flags.push("acted");
+      if (c.downed) flags.push("downed");
+      const mark =
+        ctx.activeActorId === id
+          ? "▸"
+          : ctx.nextActorId === id
+            ? "·"
+            : "";
+      return `<li class="init-item ${flags.join(" ")}" data-id="${escapeHtml(id)}">
+        <span class="init-mark">${mark}</span>
+        <span class="init-char ${c.side}">${escapeHtml(c.tokenChar)}</span>
+        <span class="init-name">${escapeHtml(c.id)}</span>
+        <span class="init-hp">${c.hp}/${c.maxHp}</span>
+      </li>`;
+    })
+    .join("");
+
+  const sorted = [...ctx.combatants].sort((a, b) => {
+    if (a.side !== b.side) return a.side === "party" ? -1 : 1;
+    return a.id.localeCompare(b.id);
+  });
+  rosterList.innerHTML = sorted
+    .map((c) => {
+      const pct = c.maxHp > 0 ? Math.max(0, Math.min(100, (c.hp / c.maxHp) * 100)) : 0;
+      const cond =
+        c.conditions?.length > 0
+          ? escapeHtml(c.conditions.slice(0, 3).join(", "))
+          : "—";
+      const active = ctx.activeActorId === c.id ? " roster-active" : "";
+      const down = c.downed ? " roster-downed" : "";
+      return `<li class="roster-card ${c.side}${active}${down}" data-id="${escapeHtml(c.id)}">
+        <div class="roster-head">
+          <span class="roster-char">${escapeHtml(c.tokenChar)}</span>
+          <span class="roster-id">${escapeHtml(c.id)}</span>
+          <span class="roster-ac">AC ${c.ac}</span>
+        </div>
+        <div class="roster-name">${escapeHtml(c.name)}</div>
+        <div class="hp-bar" title="${c.hp}/${c.maxHp}"><div class="hp-fill" style="width:${pct}%"></div></div>
+        <div class="roster-hp">${c.hp}/${c.maxHp}${
+          c.vitalLabel && c.vitalState !== "ok" ? ` · ${escapeHtml(c.vitalLabel)}` : ""
+        }</div>
+        <div class="roster-cond" title="${escapeHtml((c.conditions || []).join(", "))}">${cond}</div>
+      </li>`;
+    })
+    .join("");
+}
+
+function choiceHighlightCells(choice, ctx) {
+  const cells = [];
+  if (choice.toCell) cells.push(choice.toCell);
+  if (choice.targetId) {
+    const t = combatantById(ctx, choice.targetId);
+    if (t) cells.push(cellIdFromXY(t.x, t.y));
+  }
+  return cells;
+}
+
+async function submitCombatChoice(key) {
+  try {
+    await apiJson("/api/combat/choose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+    await refresh();
+  } catch (err) {
+    if (els.actionPanelHint) {
+      els.actionPanelHint.textContent = err.message || String(err);
+    }
+  }
+}
+
+function renderActionPanel(ctx) {
+  const panel = els.actionPanel;
+  const list = els.actionPanelList;
+  const hint = els.actionPanelHint;
+  if (!panel || !list) return;
+  const theater = ctx?.theater;
+  const awaiting = !!theater?.awaitingPlayer && (theater.choices || []).length > 0;
+  const show =
+    !!ctx &&
+    (ctx.phase === "active" || ctx.phase === "waiting" || ctx.phase === "deploy") &&
+    (awaiting || !!ctx.activeActorId);
+  panel.hidden = !show;
+  if (!show) {
+    list.innerHTML = "";
+    return;
+  }
+  const actor = ctx.activeActorId ? combatantById(ctx, ctx.activeActorId) : null;
+  if (awaiting) {
+    if (hint) {
+      hint.textContent = actor
+        ? `${actor.name} (${actor.id}) — pick an action`
+        : "Pick an action";
+    }
+    list.innerHTML = (theater.choices || [])
+      .map(
+        (ch) =>
+          `<button type="button" class="action-choice" data-key="${escapeHtml(
+            ch.key,
+          )}" data-to="${escapeHtml(ch.toCell || "")}" data-target="${escapeHtml(
+            ch.targetId || "",
+          )}" title="${escapeHtml(ch.tip || "")}">
+            <span class="action-key">${escapeHtml(ch.key)}</span>
+            <span class="action-label">${escapeHtml(ch.label)}</span>
+            <span class="action-tactic">${escapeHtml(ch.tactic || "")}</span>
+          </button>`,
+      )
+      .join("");
+    list.querySelectorAll(".action-choice").forEach((btn) => {
+      btn.addEventListener("mouseenter", () => {
+        const key = btn.dataset.key;
+        const ch = (theater.choices || []).find((c) => c.key === key);
+        if (ch) applyChoiceHoverHighlight(els.battleMap, choiceHighlightCells(ch, ctx));
+      });
+      btn.addEventListener("mouseleave", () => clearChoiceHoverHighlights(els.battleMap));
+      btn.addEventListener("click", () => {
+        clearChoiceHoverHighlights(els.battleMap);
+        submitCombatChoice(btn.dataset.key);
+      });
+    });
+  } else {
+    if (hint) {
+      hint.textContent = actor
+        ? `${actor.name} is acting…`
+        : ctx.nextActorId
+          ? `Next: ${ctx.nextActorId}`
+          : "Waiting…";
+    }
+    list.innerHTML = "";
+  }
 }
 
 function renderRoundStage(ctx) {
@@ -1005,16 +1358,51 @@ function fillBriefingList(ul, items, mode) {
   }
 }
 
-function renderLoopBriefing(briefing) {
+function renderLoopBriefing(report) {
   if (!els.loopBriefing) return;
+  const briefing = report?.briefing;
   if (!briefing) {
     els.loopBriefing.hidden = true;
     return;
   }
   els.loopBriefing.hidden = false;
-  if (els.loopBriefingHeadline) {
-    els.loopBriefingHeadline.textContent = briefing.headline || "";
+
+  const rows = report.rows || [];
+  const summary = report.summary || {};
+  const partyWins = rows.filter((r) => r.winner === "party").length;
+  const fullSurvivors = rows.filter((r) => (r.partyAlive ?? 0) >= 4).length;
+  const avgRounds = rows.length
+    ? (rows.reduce((s, r) => s + (r.rounds || 0), 0) / rows.length).toFixed(1)
+    : "0";
+  const cellsOk = summary.cellsOk ?? 0;
+  const cellsTotal = summary.cellsTotal ?? 0;
+  const bandOff = cellsTotal - cellsOk;
+
+  if (els.loopBriefingStats) {
+    els.loopBriefingStats.hidden = false;
+    els.loopBriefingStats.innerHTML = `
+      <div class="stat"><div class="v ok">${partyWins} / ${rows.length}</div><div class="l">Party wins</div></div>
+      <div class="stat"><div class="v">${fullSurvivors}</div><div class="l">Full-party survivor runs</div></div>
+      <div class="stat"><div class="v">${avgRounds}</div><div class="l">Avg rounds</div></div>
+      <div class="stat"><div class="v ${bandOff ? "warn" : "ok"}">${cellsOk} / ${cellsTotal}</div><div class="l">Band cells OK</div></div>`;
   }
+
+  if (els.loopBriefingCallout) {
+    els.loopBriefingCallout.hidden = false;
+    els.loopBriefingCallout.classList.toggle("warn", bandOff > 0);
+  }
+  if (els.loopBriefingHeadline) {
+    els.loopBriefingHeadline.textContent =
+      bandOff === 0 ? "Clean matrix" : "Bands need attention";
+  }
+  if (els.loopBriefingStatus) {
+    els.loopBriefingStatus.textContent =
+      briefing.headline ||
+      (bandOff === 0
+        ? "Every cell matched its threat-band expectation."
+        : `${bandOff} cell${bandOff === 1 ? "" : "s"} off band.`);
+  }
+
   fillBriefingList(els.loopBriefingHow, briefing.howItWent, "text");
   fillBriefingList(els.loopBriefingBest, briefing.best, "scenario");
   fillBriefingList(els.loopBriefingWorst, briefing.worst, "scenario");
@@ -1024,7 +1412,7 @@ function renderLoopBriefing(briefing) {
 async function refreshLoopBriefing() {
   try {
     const report = await apiJson("/api/loop/report");
-    renderLoopBriefing(report.briefing || null);
+    renderLoopBriefing(report);
   } catch {
     renderLoopBriefing(null);
   }
@@ -1032,6 +1420,8 @@ async function refreshLoopBriefing() {
 
 function renderContext(payload) {
   const ctx = payload.context;
+  window.__lastCtx = ctx;
+  window.__lastRunInFlight = !!payload.runInFlight;
   els.model.textContent = payload.model || "ollama";
   const deploying = ctx?.phase === "deploy";
   const canDragTokens = !!(
@@ -1071,6 +1461,8 @@ function renderContext(payload) {
     if (!payload.runInFlight) {
       renderRoundStage(null);
       renderBattleMap(null);
+      renderInitRoster(null);
+      renderActionPanel(null);
       setCombatFocus(false);
     }
     renderMessages(payload.chat);
@@ -1110,7 +1502,13 @@ function renderContext(payload) {
     : ctx.rounds?.length
       ? ctx.rounds[ctx.rounds.length - 1].board
       : null;
-  renderBattleMap(liveBoard, { editable: canDragTokens });
+  renderBattleMap(liveBoard, {
+    editable: canDragTokens,
+    theater: ctx.theater || null,
+    activeActorId: ctx.activeActorId || null,
+  });
+  renderInitRoster(ctx);
+  renderActionPanel(ctx);
   renderRoundStage(ctx);
   renderMessages(payload.chat);
   if (ctx.phase === "ended" && lastPhase !== "ended") {
@@ -1650,6 +2048,12 @@ apiJson("/api/settings", {
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(readLocalSettings()),
 }).catch(() => {});
+// Poll faster while a run is live / waiting for a party action pick.
+setInterval(() => {
+  const awaiting = !!window.__lastCtx?.theater?.awaitingPlayer;
+  const inflight = !!window.__lastRunInFlight;
+  if (awaiting || inflight) refresh();
+}, 500);
 setInterval(refresh, 1500);
 setInterval(() => {
   refreshRuns().catch(() => {});

@@ -13,6 +13,11 @@
     "ui": "tsx src/cli.ts --ui --port 5179",
     "loop": "tsx src/cli.ts --loop",
     "matrix": "tsx src/cli.ts --loop",
+    "ingest-spells": "tsx src/ingest/spells/cli.ts",
+    "ingest-feats": "tsx src/ingest/feats/cli.ts",
+    "ingest-afflictions": "tsx src/ingest/afflictions/cli.ts",
+    "ingest-hazards": "tsx src/ingest/hazards/cli.ts",
+    "ingest-archetypes": "tsx src/ingest/archetypes/cli.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

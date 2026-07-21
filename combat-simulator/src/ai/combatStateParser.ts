@@ -6,13 +6,16 @@ import parserMeta from "./modules/realtime-combat-state-parser.json" with { type
 import type { CombatantState, CombatMemory, Condition } from "../memory/combatMemory.js";
 import { living } from "../memory/combatMemory.js";
 import { cellId, isCoverTags, type Position } from "../memory/schemas.js";
-import { chebyshev, hasCover } from "../map/grid.js";
+import { chebyshev, hasCover, isFog } from "../map/grid.js";
 import { findPath } from "../map/pathfind.js";
 import { occupiedKeys } from "../memory/combatMemory.js";
 import { isAdjacent, isFlanking } from "./flank.js";
 import { isAgainstWall, isFlankedBy } from "./spatialThreat.js";
 import { groupFlags } from "./tacticsGroups.js";
 import { isBruteRole, isCasterSquishRole, isMindlessRole } from "./combatLoop.js";
+import { tickAfflictionsForActor } from "../rules/pf2e/affliction.js";
+import { triggerHazardsEndOfTurn } from "../rules/pf2e/hazard.js";
+import type { SeededRng } from "../rules/pf2e/rng.js";
 
 export const COMBAT_STATE_PARSER = parserMeta;
 
@@ -185,7 +188,11 @@ function parsePersistent(actor: CombatantState): PersistentDamageEntry[] {
   return out;
 }
 
-function parseDebuffs(actor: CombatantState, isFlanked: boolean): StatusDebuffEntry[] {
+function parseDebuffs(
+  actor: CombatantState,
+  isFlanked: boolean,
+  concealed: boolean,
+): StatusDebuffEntry[] {
   const names = ["frightened", "sickened", "off-guard", "off_guard", "offguard"];
   const found: StatusDebuffEntry[] = [];
   for (const want of ["Frightened", "Sickened"]) {
@@ -198,6 +205,7 @@ function parseDebuffs(actor: CombatantState, isFlanked: boolean): StatusDebuffEn
     names.slice(2).includes(c.name.toLowerCase()),
   );
   found.push({ name: "Off-Guard", value: isFlanked || greaseOg });
+  found.push({ name: "Concealed", value: concealed });
   return found;
 }
 
@@ -312,7 +320,7 @@ export function parseCombatState(
     },
     activeStatusEffects: {
       persistentDamage: parsePersistent(actor),
-      statusDebuffs: parseDebuffs(actor, flanked),
+      statusDebuffs: parseDebuffs(actor, flanked, isFog(mem.grid, actor.pos)),
     },
     knownEnemyRegistry: registry,
   };
@@ -331,13 +339,15 @@ export function afterAttackTrait(actor: CombatantState): {
 }
 
 /**
- * End-of-turn decay: persistent tick, Frightened−1, clear shield raise & MAP.
+ * End-of-turn decay: persistent tick, Frightened−1, affliction intervals,
+ * clear shield raise & MAP.
  * Call when the agent's action budget is exhausted / turn ends.
  */
 export function applyEndOfTurnDecay(
   mem: CombatMemory,
   actor: CombatantState,
   log: string[],
+  rng?: SeededRng,
 ): void {
   // Persistent damage tick
   for (const c of [...actor.conditions]) {
@@ -382,6 +392,16 @@ export function applyEndOfTurnDecay(
       c.value = v - 1;
       log.push(`  EOT decay: Frightened → ${c.value}`);
     }
+  }
+
+  // Affliction stage interval saves (poison / disease / curse)
+  if (rng && actor.afflictions.length > 0) {
+    tickAfflictionsForActor(mem, actor, rng, log);
+  }
+
+  // Complex / lingering hazards (end_turn_in)
+  if (rng && mem.activeHazards.some((h) => h.armed && h.definition.trigger === "end_turn_in")) {
+    triggerHazardsEndOfTurn(mem, actor, rng, log);
   }
 
   // Reset shield raise & MAP for next turn boundary (startTurn also resets MAP).

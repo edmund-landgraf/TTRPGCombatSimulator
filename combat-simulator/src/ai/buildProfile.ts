@@ -12,6 +12,15 @@ import { chebyshev } from "../map/grid.js";
 import type { ClassPacket } from "./combatLoop.js";
 import { flankApproachPos, isFlanking } from "./flank.js";
 import { isFlankedBy, nearestFoe } from "./spatialThreat.js";
+import {
+  evaluateOwnedFeats,
+  lookupFeat,
+  type FeatAttemptVerdict,
+} from "./featLookup.js";
+import {
+  archetypeToOverlay,
+  resolveArchetypesForActor,
+} from "./archetypeLookup.js";
 
 export type RolePacketId =
   | "fighter"
@@ -45,6 +54,8 @@ export type ComposedPacket = {
   actions: [PacketAction, PacketAction, PacketAction];
   overlayIds: string[];
   scoreBreakdown: string[];
+  /** Owned combat-feat attempt gates that influenced this packet's score. */
+  featAttempts: FeatAttemptVerdict[];
 };
 
 export type LevelBand = {
@@ -188,9 +199,7 @@ export function defaultCapabilities(actor: CombatantState, rolePacket: RolePacke
     if (actor.spells.some((s) => s.rank > 0)) caps.push("cast_focus");
   }
   if (rolePacket === "barbarian") caps.push("sudden_charge");
-  if (actor.archetypes.includes("champion_dedication")) {
-    caps.push("reactive_strike");
-  }
+  // Dedication grants (e.g. champion_dedication → reactive_strike) applied in resolveBuildProfile.
   return caps;
 }
 
@@ -215,22 +224,52 @@ export function resolveLevelBand(level: number, capabilityCount: number): {
 export function resolveOverlays(
   capabilities: string[],
   archetypes: string[],
+  catalogEntries?: ReturnType<typeof resolveArchetypesForActor>["entries"],
 ): { id: string; overlay: FeatOverlay }[] {
   const ids = new Set([...capabilities, ...archetypes]);
   const out: { id: string; overlay: FeatOverlay }[] = [];
+  const seen = new Set<string>();
+
   for (const id of ids) {
     const o = OVERLAYS[id];
-    if (o) out.push({ id, overlay: o });
+    if (o && !seen.has(id)) {
+      seen.add(id);
+      out.push({ id, overlay: o });
+    }
   }
+
+  // Catalog archetypes: apply overlayId JSON entry and/or synthetic scoreHints.
+  for (const entry of catalogEntries ?? []) {
+    if (entry.overlayId && OVERLAYS[entry.overlayId] && !seen.has(entry.overlayId)) {
+      seen.add(entry.overlayId);
+      out.push({ id: entry.overlayId, overlay: OVERLAYS[entry.overlayId]! });
+    }
+    if (seen.has(entry.id)) continue;
+    const synthetic = archetypeToOverlay(entry);
+    if (!synthetic) continue;
+    // Skip if JSON overlay already covers the same id/overlayId.
+    if (entry.overlayId && seen.has(entry.overlayId)) continue;
+    seen.add(entry.id);
+    out.push({ id: entry.id, overlay: synthetic as FeatOverlay });
+  }
+
   return out;
 }
 
 export function resolveBuildProfile(actor: CombatantState): BuildProfile {
   const rolePacket = inferRolePacket(actor);
   const classId = actor.classId || rolePacket;
-  const capabilities = defaultCapabilities(actor, rolePacket);
-  const archetypes = [...actor.archetypes];
-  const overlays = resolveOverlays(capabilities, archetypes);
+  const resolvedArch = resolveArchetypesForActor(actor.archetypes);
+  const archetypes = resolvedArch.tags;
+  const capabilities = [
+    ...defaultCapabilities({ ...actor, archetypes }, rolePacket),
+    ...resolvedArch.grantCapabilities,
+  ].filter((c, i, arr) => arr.indexOf(c) === i);
+  const overlays = resolveOverlays(
+    capabilities,
+    archetypes,
+    resolvedArch.entries,
+  );
   const { band, bumped } = resolveLevelBand(actor.level, capabilities.length);
   const roleDef = ROLE_PACKETS[rolePacket] ?? ROLE_PACKETS.other!;
   return {
@@ -304,23 +343,39 @@ function scorePacket(
   profile: BuildProfile,
   hints: BattlefieldHints,
   actions: PacketAction[],
-): { score: number; breakdown: string[]; overlayIds: string[] } {
+  featAttempts: FeatAttemptVerdict[],
+): { score: number; breakdown: string[]; overlayIds: string[]; featAttempts: FeatAttemptVerdict[] } {
   let score = basePriority * (WEIGHTS.basePriority ?? 1);
   const breakdown: string[] = [`basePriority=${basePriority}`];
   const overlayIds: string[] = [];
+  const attemptsById = new Map(featAttempts.map((f) => [f.featId, f]));
+  const packetFeatAttempts: FeatAttemptVerdict[] = [];
 
   for (const { id, overlay } of profile.overlays) {
     overlayIds.push(id);
+    const featGate = attemptsById.get(id);
+    if (featGate) packetFeatAttempts.push(featGate);
+
     const bonus = overlay.priorityBonus ?? 0;
     if (bonus) {
       const prefer = overlay.preferPacketIds?.includes(packetId) ?? false;
-      const applied = prefer ? bonus : bonus * 0.25;
+      let applied = prefer ? bonus : bonus * 0.25;
+      // Catalog gate: do not prefer a packet for a feat that should not be attempted.
+      if (featGate && prefer && !featGate.attempt) {
+        applied = bonus * 0.1;
+        breakdown.push(`featSkip:${id}:${featGate.reason}`);
+      } else if (featGate && prefer && featGate.attempt) {
+        score += featGate.scoreHint * 0.35 * (WEIGHTS.capabilityHint ?? 1);
+        breakdown.push(`featTry:${id}+${featGate.scoreHint.toFixed(1)}`);
+      }
       score += applied * (WEIGHTS.overlayPriorityBonus ?? 1);
       breakdown.push(`${id}+${applied.toFixed(1)}`);
     }
     if (overlay.preferPacketIds?.includes(packetId)) {
-      score += 1.5;
-      breakdown.push(`prefer:${id}`);
+      if (!featGate || featGate.attempt) {
+        score += 1.5;
+        breakdown.push(`prefer:${id}`);
+      }
     }
     if (overlay.scoreHints) {
       for (const [k, v] of Object.entries(overlay.scoreHints)) {
@@ -331,6 +386,7 @@ function scorePacket(
         if (k === "mathBuffFirst") apply = v;
         if (k === "reactionSetup" || k === "eotAdjacent") apply = v * 0.6;
         if (k === "shieldLayer") apply = v * 0.5;
+        if (featGate && !featGate.attempt) apply *= 0.25;
         score += apply * (WEIGHTS.capabilityHint ?? 1);
         breakdown.push(`hint:${k}=${apply.toFixed(1)}`);
       }
@@ -338,6 +394,21 @@ function scorePacket(
     if (overlay.requireOffGuardBias && packetId.includes("flank")) {
       score += 1.2;
       breakdown.push("offGuardBias");
+    }
+  }
+
+  // Catalog feats without an overlay key that prefer this packet.
+  for (const verdict of featAttempts) {
+    if (profile.overlays.some((o) => o.id === verdict.featId)) continue;
+    const feat = lookupFeat(verdict.featId);
+    const prefers = feat?.preferPacketIds?.includes(packetId) ?? false;
+    if (!prefers) continue;
+    packetFeatAttempts.push(verdict);
+    if (verdict.attempt) {
+      score += verdict.scoreHint * 0.35 * (WEIGHTS.capabilityHint ?? 1);
+      breakdown.push(`featTry:${verdict.featId}+${verdict.scoreHint.toFixed(1)}`);
+    } else {
+      breakdown.push(`featSkip:${verdict.featId}:${verdict.reason}`);
     }
   }
 
@@ -387,16 +458,22 @@ function scorePacket(
     }
   }
 
-  return { score, breakdown, overlayIds };
+  return { score, breakdown, overlayIds, featAttempts: packetFeatAttempts };
 }
 
 /** Compose and rank packet templates for this build + battlefield. */
 export function composePackets(
+  mem: CombatMemory,
+  actor: CombatantState,
   profile: BuildProfile,
   hints: BattlefieldHints,
 ): ComposedPacket[] {
   const roleDef = ROLE_PACKETS[profile.rolePacket] ?? ROLE_PACKETS.other!;
   const composed: ComposedPacket[] = [];
+  const featAttempts = evaluateOwnedFeats(mem, actor, {
+    hints,
+    capabilities: profile.capabilities,
+  });
 
   for (const raw of roleDef.packets) {
     let actions = raw.actions.slice(0, 3).map((a) => ({
@@ -412,12 +489,13 @@ export function composePackets(
       });
     }
     actions = applyOverlayRewrites(actions, profile.overlays);
-    const { score, breakdown, overlayIds } = scorePacket(
+    const { score, breakdown, overlayIds, featAttempts: packetFeats } = scorePacket(
       raw.id,
       raw.priority,
       profile,
       hints,
       actions,
+      featAttempts,
     );
     composed.push({
       id: raw.id,
@@ -427,6 +505,7 @@ export function composePackets(
       actions: [actions[0]!, actions[1]!, actions[2]!],
       overlayIds,
       scoreBreakdown: breakdown,
+      featAttempts: packetFeats,
     });
   }
 
@@ -443,12 +522,13 @@ export function composePackets(
         intent: a.intent,
         head: asHead(a.head),
       }));
-      const { score, breakdown, overlayIds } = scorePacket(
+      const { score, breakdown, overlayIds, featAttempts: packetFeats } = scorePacket(
         cleric.id,
         cleric.priority + 4,
         profile,
         hints,
         actions,
+        featAttempts,
       );
       composed.push({
         id: cleric.id,
@@ -458,6 +538,7 @@ export function composePackets(
         actions: [actions[0]!, actions[1]!, actions[2]!],
         overlayIds,
         scoreBreakdown: [...breakdown, "injected:triage"],
+        featAttempts: packetFeats,
       });
     }
   }
@@ -520,6 +601,7 @@ export function selectPacketsForBand(
       ],
       overlayIds: [],
       scoreBreakdown: ["fallback"],
+      featAttempts: [],
     };
     return { chosen: fallback, alternates: [], evaluated: [fallback] };
   }

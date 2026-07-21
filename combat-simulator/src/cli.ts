@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
 import { EncounterFixtureSchema } from "./memory/schemas.js";
-import { buildClassicFourCells } from "./map/buildClassicMap.js";
+import { buildClassicFourCells, classicHazardPlacements } from "./map/buildClassicMap.js";
 import { runEncounter } from "./orch/loop.js";
 import { OllamaProvider } from "./llm/ollama.js";
 import type { LlmProvider } from "./llm/types.js";
@@ -256,6 +256,9 @@ async function main() {
     const raw = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
     if (!raw.cells || raw.cells.length === 0) {
       raw.cells = buildClassicFourCells(raw.width ?? 12, raw.height ?? 10);
+    }
+    if (!raw.hazards || raw.hazards.length === 0) {
+      raw.hazards = classicHazardPlacements();
     }
     fixture = EncounterFixtureSchema.parse(raw);
   }

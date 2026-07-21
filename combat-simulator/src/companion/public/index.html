@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Combat Studio</title>
-    <link rel="stylesheet" href="/styles.css?v=22" />
+    <link rel="stylesheet" href="/styles.css?v=23" />
   </head>
   <body>
     <div class="shell">
@@ -150,18 +150,33 @@
                 <button type="button" id="clearCombatBtn" class="ghost">Clear</button>
               </div>
             </header>
-            <section id="battleMapWrap" class="battle-map-wrap" hidden aria-label="Battle map">
-              <div class="battle-map-header">
-                <h2 id="battleMapTitle">Map</h2>
-              </div>
-              <p id="deployHint" class="meta deploy-hint" hidden>
-                Drag tokens onto walkable cells, then continue with <strong>Enter</strong>.
-              </p>
-              <div class="battle-map-body">
-                <div id="battleMap" class="battle-map" role="img" aria-label="Graphical battle grid"></div>
-                <ul id="battleLegend" class="battle-map-legend" aria-label="Map legend"></ul>
-              </div>
-            </section>
+            <div class="theater-body">
+              <aside id="initRoster" class="init-roster" aria-label="Initiative and roster" hidden>
+                <h2 class="theater-side-title">Initiative</h2>
+                <ol id="initList" class="init-list"></ol>
+                <h2 class="theater-side-title">Combatants</h2>
+                <ul id="rosterList" class="roster-list"></ul>
+              </aside>
+              <section id="battleMapWrap" class="battle-map-wrap" hidden aria-label="Battle map">
+                <div class="battle-map-header">
+                  <h2 id="battleMapTitle">Map</h2>
+                </div>
+                <p id="deployHint" class="meta deploy-hint" hidden>
+                  Drag tokens onto walkable cells, then continue with <strong>Enter</strong>.
+                </p>
+                <div class="battle-map-body">
+                  <div id="battleMap" class="battle-map" role="img" aria-label="Graphical battle grid"></div>
+                  <ul id="battleLegend" class="battle-map-legend" aria-label="Map legend"></ul>
+                </div>
+              </section>
+              <aside id="actionPanel" class="action-panel" aria-label="Actions" hidden>
+                <h2 class="theater-side-title">Actions</h2>
+                <p id="actionPanelHint" class="meta action-panel-hint">
+                  Waiting for a party turn…
+                </p>
+                <div id="actionPanelList" class="action-panel-list"></div>
+              </aside>
+            </div>
             <div id="roundStage" class="round-stage" tabindex="0">
               <p class="round-empty meta">Run combat from Setup — pauses follow Settings (rounds and/or turns). Press Enter to continue.</p>
             </div>
@@ -196,7 +211,7 @@
               <div>
                 <h1>Loop report</h1>
                 <p id="loopMeta" class="meta">
-                  Runs the challenge ladder, then builds a Results matrix dashboard (wins, avg PC dmg, downs, band charts).
+                  Runs the challenge ladder, then builds a pretty analysis dashboard (KPIs, status callout, matrix, charts).
                 </p>
               </div>
               <div class="pills header-actions">
@@ -234,8 +249,11 @@
             </form>
             <p id="loopProgress" class="meta setup-msg"></p>
             <section id="loopBriefing" class="loop-briefing panel" hidden aria-label="Loop analysis briefing">
-              <h2>Analysis briefing</h2>
-              <p id="loopBriefingHeadline" class="loop-briefing-headline"></p>
+              <div id="loopBriefingStats" class="loop-briefing-stats" hidden></div>
+              <div id="loopBriefingCallout" class="loop-briefing-callout" hidden>
+                <div id="loopBriefingHeadline" class="loop-briefing-headline"></div>
+                <p id="loopBriefingStatus" class="loop-briefing-status"></p>
+              </div>
               <div class="loop-briefing-grid">
                 <div>
                   <h3>How it went</h3>
@@ -332,6 +350,16 @@
             </span>
             <input type="checkbox" id="pauseEachTurn" />
           </label>
+          <label class="settings-row">
+            <span class="settings-label">
+              Control party turns in UI?
+              <span class="settings-hint"
+                >When on, you pick legal Stride / Strike / Cast actions for PCs; enemies stay AI.
+                Turn off for full AI spectating.</span
+              >
+            </span>
+            <input type="checkbox" id="controlPartyTurns" checked />
+          </label>
         </div>
         <footer class="modal-footer">
           <button type="button" id="settingsSaveBtn" class="accent-btn">Save</button>
@@ -341,6 +369,6 @@
       </div>
     </div>
 
-    <script src="/app.js?v=22"></script>
+    <script src="/app.js?v=23"></script>
   </body>
 </html>

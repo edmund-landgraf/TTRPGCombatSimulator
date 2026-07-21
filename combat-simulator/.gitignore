@@ -5,3 +5,12 @@ logs/tactics/*
 !logs/tactics/.gitkeep
 !logs/tactics/.settings.json
 *.log
+# Large AoN bootstrap dumps (regenerate via ingest --fetch-elastic)
+data/aon/Feats.aspx.html
+data/aon/Afflictions.html
+data/aon/Hazards.aspx.html
+data/aon/Archetypes.aspx.html
+data/feats/index.json
+data/afflictions/index.json
+data/hazards/index.json
+data/archetypes/index.json

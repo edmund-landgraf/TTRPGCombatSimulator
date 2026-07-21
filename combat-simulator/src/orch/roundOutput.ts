@@ -65,7 +65,10 @@ export function formatStatusRoster(mem: CombatMemory): string {
       const condParts = c.conditions
         .filter((x) => !["dying", "unconscious", "dead", "wounded"].includes(x.name))
         .map((x) => (x.value != null ? `${x.name} ${x.value}` : x.name));
-      const cond = condParts.length === 0 ? "—" : condParts.join(", ");
+      const affParts = c.afflictions.map(
+        (a) => `${a.name} s${a.stage}` + (a.roundsLeft != null ? ` (${a.roundsLeft}r)` : ""),
+      );
+      const cond = [...condParts, ...affParts].length === 0 ? "—" : [...condParts, ...affParts].join(", ");
       const statusBit = vitalTag ? ` [${vitalTag}]` : "";
       lines.push(
         `  ${c.id.padEnd(4)} ${c.name.padEnd(10)} hp ${String(c.hp).padStart(2)}/${c.maxHp}${statusBit}  @ ${cellId(c.pos)}  conditions: ${cond}`,
@@ -170,6 +173,7 @@ export function formatRoundSummary(mem: CombatMemory): string {
           e.t === "attack" ||
           e.t === "spell" ||
           e.t === "hazard" ||
+          e.t === "hazard_trigger" ||
           e.t === "terrain"),
     );
 
@@ -180,6 +184,10 @@ export function formatRoundSummary(mem: CombatMemory): string {
       } else if (e.t === "hazard") {
         bullets.push(
           `- ${actor.name} took ${e.dmg} from hazardous terrain at ${e.cell} (hp ${e.hpAfter})`,
+        );
+      } else if (e.t === "hazard_trigger") {
+        bullets.push(
+          `- ${e.hazardName} hits ${actor.name} for ${e.dmg} at ${e.cell} (hp ${e.hpAfter})`,
         );
       } else if (e.t === "terrain") {
         const dur =

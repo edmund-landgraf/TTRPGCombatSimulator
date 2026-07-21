@@ -236,6 +236,7 @@ export function buildChallenge(spec: ChallengeSpec): BuiltChallenge {
     height: 10,
     cells: buildClassicFourCells(12, 10),
     combatants,
+    hazards: [],
   };
 
   return {

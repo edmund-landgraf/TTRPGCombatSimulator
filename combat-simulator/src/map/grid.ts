@@ -89,6 +89,10 @@ export function isGrease(grid: Grid, pos: Position): boolean {
   return grid.walkable.get(cellId(pos))?.tags.includes("grease") ?? false;
 }
 
+export function isFog(grid: Grid, pos: Position): boolean {
+  return grid.walkable.get(cellId(pos))?.tags.includes("fog") ?? false;
+}
+
 export function isHazardous(grid: Grid, pos: Position): boolean {
   return grid.walkable.get(cellId(pos))?.tags.includes("hazardous") ?? false;
 }

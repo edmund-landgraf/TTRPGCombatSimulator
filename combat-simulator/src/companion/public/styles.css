@@ -613,11 +613,245 @@ button.secondary {
   background: var(--panel);
 }
 
-.battle-map-wrap {
+.theater-body {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
   flex-shrink: 0;
-  padding: 0.65rem 1.25rem 0.85rem;
+  min-height: 0;
+  max-height: min(58vh, 640px);
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
+}
+
+.init-roster {
+  flex: 0 0 220px;
+  width: 220px;
+  min-width: 180px;
+  max-width: 260px;
+  overflow: auto;
+  padding: 0.55rem 0.65rem 0.75rem;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.action-panel {
+  flex: 0 0 240px;
+  width: 240px;
+  min-width: 200px;
+  max-width: 280px;
+  overflow: auto;
+  padding: 0.55rem 0.65rem 0.75rem;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.theater-side-title {
+  margin: 0.35rem 0 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.init-list,
+.roster-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.init-item {
+  display: grid;
+  grid-template-columns: 0.9rem 1.1rem 1fr auto;
+  gap: 0.25rem;
+  align-items: center;
+  padding: 0.2rem 0.25rem;
+  font-size: 0.78rem;
+  font-family: var(--mono);
+  border-radius: 3px;
+}
+
+.init-item.active {
+  background: rgba(90, 140, 200, 0.28);
+  outline: 1px solid rgba(120, 170, 230, 0.55);
+}
+
+.init-item.next {
+  background: rgba(200, 180, 80, 0.12);
+}
+
+.init-item.downed {
+  opacity: 0.45;
+}
+
+.init-mark {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.init-char.party,
+.roster-card.party .roster-char {
+  color: #9ec0ef;
+}
+
+.init-char.enemy,
+.roster-card.enemy .roster-char {
+  color: #efb0a8;
+}
+
+.roster-card {
+  margin-bottom: 0.45rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  font-size: 0.75rem;
+}
+
+.roster-card.roster-active {
+  border-color: rgba(120, 170, 230, 0.65);
+  box-shadow: inset 0 0 0 1px rgba(120, 170, 230, 0.25);
+}
+
+.roster-card.roster-downed {
+  opacity: 0.5;
+}
+
+.roster-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--mono);
+}
+
+.roster-id {
+  font-weight: 600;
+  flex: 1;
+}
+
+.roster-ac {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.roster-name {
+  margin: 0.15rem 0 0.25rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hp-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.hp-fill {
+  height: 100%;
+  background: #5a9e6e;
+}
+
+.roster-card.enemy .hp-fill {
+  background: #b85a4a;
+}
+
+.roster-hp {
+  margin-top: 0.2rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+
+.roster-cond {
+  margin-top: 0.15rem;
+  color: #d4c48a;
+  font-size: 0.68rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.action-panel-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+}
+
+.action-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.action-choice {
+  display: grid;
+  grid-template-columns: 1.4rem 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.4rem;
+  row-gap: 0.1rem;
+  text-align: left;
+  padding: 0.4rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.action-choice:hover {
+  border-color: var(--accent);
+  background: rgba(90, 140, 200, 0.12);
+}
+
+.action-key {
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.action-label {
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.action-tactic {
+  font-size: 0.68rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.battle-map-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding: 0.65rem 1rem 0.85rem;
+  background: var(--panel-2);
+}
+
+@media (max-width: 1100px) {
+  .theater-body {
+    flex-wrap: wrap;
+    max-height: none;
+  }
+  .init-roster,
+  .action-panel {
+    flex: 1 1 200px;
+    width: auto;
+    max-width: none;
+    border: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .battle-map-wrap {
+    flex: 1 1 100%;
+    order: -1;
+  }
 }
 
 .battle-map-header {
@@ -907,15 +1141,17 @@ button.secondary {
 }
 
 .battle-cell.cell-grease {
-  background: #2e3a28;
+  background-color: #2e3a28;
   background-image: repeating-linear-gradient(
     0deg,
     transparent,
     transparent 4px,
-    rgba(120, 180, 70, 0.2) 4px,
-    rgba(120, 180, 70, 0.2) 8px
+    rgba(140, 200, 80, 0.32) 4px,
+    rgba(140, 200, 80, 0.32) 8px
   );
-  box-shadow: inset 0 0 0 1px rgba(140, 190, 80, 0.4);
+  background-size: 100% 12px;
+  box-shadow: inset 0 0 0 1px rgba(160, 210, 90, 0.55);
+  animation: grease-shift 4.5s linear infinite;
 }
 
 .battle-cell .cell-marker.grease {
@@ -924,16 +1160,100 @@ button.secondary {
   font-size: calc(var(--cell) * 0.55);
 }
 
+.battle-cell.cell-fog {
+  background-color: #2a3038;
+  background-image: radial-gradient(
+    ellipse at 40% 40%,
+    rgba(200, 220, 240, 0.38) 0%,
+    transparent 55%
+  ),
+    radial-gradient(
+      ellipse at 70% 60%,
+      rgba(170, 195, 220, 0.3) 0%,
+      transparent 50%
+    );
+  box-shadow: inset 0 0 0 1px rgba(190, 210, 230, 0.5);
+  animation: fog-pulse 3.2s ease-in-out infinite;
+}
+
+.battle-cell .cell-marker.fog {
+  color: #c8d8e8;
+  font-weight: 700;
+  font-size: calc(var(--cell) * 0.55);
+  opacity: 0.85;
+}
+
 .battle-cell.cell-hazardous {
   background: #3a2828;
   background-image: repeating-linear-gradient(
     45deg,
     transparent,
     transparent 3px,
-    rgba(180, 60, 40, 0.28) 3px,
-    rgba(180, 60, 40, 0.28) 6px
+    rgba(200, 70, 45, 0.36) 3px,
+    rgba(200, 70, 45, 0.36) 6px
   );
-  box-shadow: inset 0 0 0 1px rgba(200, 80, 50, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(220, 90, 55, 0.55);
+}
+
+.battle-cell .cell-marker.hazardous {
+  color: #e08060;
+  font-weight: 700;
+  font-size: calc(var(--cell) * 0.55);
+}
+
+@keyframes fog-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.12);
+  }
+}
+
+@keyframes grease-shift {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .battle-cell.cell-fog,
+  .battle-cell.cell-grease {
+    animation: none;
+  }
+}
+
+/* Corner chips when a token occupies effect terrain */
+.battle-cell .cell-corner {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  z-index: 2;
+  font-size: calc(var(--cell) * 0.32);
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.85);
+}
+
+.battle-cell .cell-corner.grease {
+  color: #b8e070;
+}
+
+.battle-cell .cell-corner.fog {
+  color: #c8d8e8;
+}
+
+.battle-cell .cell-corner.hazardous {
+  color: #e08060;
+}
+
+.battle-cell .cell-corner.barricade {
+  color: #e0c070;
 }
 
 .battle-cell.cell-cover {
@@ -990,6 +1310,7 @@ button.secondary {
 }
 
 .battle-token {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -999,6 +1320,37 @@ button.secondary {
   border: 1px solid rgba(0, 0, 0, 0.35);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   z-index: 1;
+}
+
+/* Short status strip above token; visible on token or cell hover */
+.battle-token .token-status {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 2px);
+  transform: translateX(-50%);
+  z-index: 3;
+  max-width: calc(var(--cell) * 2.4);
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(12, 16, 22, 0.92);
+  color: #f0e6c8;
+  font-family: var(--mono);
+  font-size: max(9px, calc(var(--cell) * 0.28));
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+}
+
+.battle-token:hover .token-status,
+.battle-cell:hover .battle-token .token-status {
+  opacity: 1;
+  visibility: visible;
 }
 
 .battle-token.party {
@@ -1027,6 +1379,41 @@ button.secondary {
   border-radius: 4px;
   width: 90%;
   height: 90%;
+}
+
+.battle-token.token-active {
+  outline: 2px solid #e8d080;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 2px rgba(232, 208, 128, 0.35);
+  z-index: 2;
+}
+
+/* Theater highlights (active actor) */
+.battle-cell.cell-reach {
+  box-shadow: inset 0 0 0 2px rgba(90, 180, 120, 0.55);
+}
+
+.battle-cell.cell-range {
+  background-image: radial-gradient(
+    circle at center,
+    rgba(220, 160, 70, 0.18) 0%,
+    transparent 70%
+  );
+}
+
+.battle-cell.cell-no-los {
+  opacity: 0.55;
+  filter: saturate(0.55);
+}
+
+.battle-cell.cell-cover-cue {
+  box-shadow: inset 0 0 0 2px rgba(180, 150, 70, 0.5);
+}
+
+.battle-cell.cell-choice-hl {
+  outline: 2px solid #f0c040;
+  outline-offset: -2px;
+  z-index: 2;
 }
 
 .round-card .battle-map {
@@ -1144,11 +1531,59 @@ button.secondary {
   display: none !important;
 }
 
+.loop-briefing-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.loop-briefing-stats .stat .v {
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.loop-briefing-stats .stat .v.ok {
+  color: var(--ok, #4ade80);
+}
+
+.loop-briefing-stats .stat .v.warn {
+  color: var(--warn, #f59e0b);
+}
+
+.loop-briefing-stats .stat .l {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-top: 0.25rem;
+}
+
+.loop-briefing-callout {
+  border-left: 3px solid var(--ok, #4ade80);
+  padding: 0.35rem 0 0.35rem 0.85rem;
+  margin: 0 0 0.85rem;
+}
+
+.loop-briefing-callout.warn {
+  border-left-color: var(--warn, #f59e0b);
+}
+
 .loop-briefing-headline {
-  margin: 0.35rem 0 0.75rem;
-  color: var(--accent);
-  font-weight: 600;
+  margin: 0 0 0.25rem;
+  color: var(--ok, #4ade80);
+  font-weight: 700;
   font-size: 0.95rem;
+}
+
+.loop-briefing-callout.warn .loop-briefing-headline {
+  color: var(--warn, #f59e0b);
+}
+
+.loop-briefing-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
 }
 
 .loop-briefing h3 {
@@ -1178,7 +1613,8 @@ button.secondary {
 }
 
 @media (max-width: 900px) {
-  .loop-briefing-grid {
+  .loop-briefing-grid,
+  .loop-briefing-stats {
     grid-template-columns: 1fr;
   }
 }

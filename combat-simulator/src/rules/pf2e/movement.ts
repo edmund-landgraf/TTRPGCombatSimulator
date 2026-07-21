@@ -4,6 +4,8 @@ import { cellId, type Position } from "../../memory/schemas.js";
 import { isHazardous } from "../../map/grid.js";
 import { findPath, moveAlongPath } from "../../map/pathfind.js";
 import { HAZARD_DAMAGE_PER_CELL } from "../../ai/spatialThreat.js";
+import { triggerHazardsOnEnter } from "./hazard.js";
+import type { SeededRng } from "./rng.js";
 
 function applyHazardTraversal(
   mem: CombatMemory,
@@ -32,6 +34,7 @@ export function resolveStride(
   actor: CombatantState,
   destination: Position,
   round: number,
+  rng?: SeededRng,
 ): boolean {
   const blocked = occupiedKeys(mem, actor.id);
   const path = findPath(mem.grid, actor.pos, destination, actor.speedCells, blocked);
@@ -65,6 +68,10 @@ export function resolveStride(
   actor.pos = { ...dest };
   const to = cellId(actor.pos);
   mem.events.push({ t: "move", round, actor: actor.id, from, to, kind: "Stride" });
+  if (rng && traversed.length > 1) {
+    const entered = traversed.slice(1);
+    triggerHazardsOnEnter(mem, actor, entered, rng, []);
+  }
   actor.actionsLeft -= 1;
   return true;
 }
@@ -74,6 +81,7 @@ export function resolveStep(
   actor: CombatantState,
   destination: Position,
   round: number,
+  rng?: SeededRng,
 ): boolean {
   const blocked = occupiedKeys(mem, actor.id);
   if (blocked.has(cellId(destination))) {
@@ -106,6 +114,9 @@ export function resolveStep(
     to: cellId(actor.pos),
     kind: "Step",
   });
+  if (rng) {
+    triggerHazardsOnEnter(mem, actor, [destination], rng, []);
+  }
   actor.actionsLeft -= 1;
   return true;
 }

@@ -198,9 +198,13 @@ export function precomputeReactions(actor: CombatantState): ReactionPlan {
   const flags = groupFlags(actor);
   const caps = new Set(actor.capabilities ?? []);
   const archetypes = new Set(actor.archetypes ?? []);
+  const hasChampionDedication =
+    archetypes.has("champion_dedication") ||
+    archetypes.has("Champion") ||
+    [...archetypes].some((t) => t.toLowerCase() === "champion");
   const hasReactive =
     caps.has("reactive_strike") ||
-    archetypes.has("champion_dedication") ||
+    hasChampionDedication ||
     (flags.preferMelee && !flags.keepDistance && packet === "fighter");
   const reactiveStrike = actor.reactionAvailable && hasReactive;
   const shieldBlock =

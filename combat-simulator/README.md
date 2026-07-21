@@ -24,8 +24,12 @@ npm run loop
 ```
 
 Writes `runs/challenge-matrix/challenge-matrix-report.json` and an HTML dashboard
-(`challenge-matrix-report.html`) matching the challenge-ladder report (stats, matrix table, charts).
-Also available in Studio → **Loop** tab, or `npm run sim -- --loop`.
+(`challenge-matrix-report.html`) with the pretty loop-analysis layout (KPI strip, status
+callout, matrix table, charts, briefing). Also available in Studio → **Loop** tab, or
+`npm run sim -- --loop`.
+
+Director-note batches (`npx tsx scripts/batch10.ts`) write the same style of dashboard to
+`runs/batch10/batch10-results.html` (outcomes table, rounds/damage charts, tactics rejects).
 ```
 
 Print PF2e rules blurbs for actions / topics (`brief` default, or `verbose`):

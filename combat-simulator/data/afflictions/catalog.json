@@ -1,0 +1,289 @@
+{
+  "generatedAt": "2026-07-20T23:53:51.607Z",
+  "source": "elastic:trait_group:Affliction",
+  "count": 7,
+  "note": "Combat-ready AfflictionSchema stubs. Runtime: exposeAffliction + EOT tick.",
+  "afflictions": [
+    {
+      "id": "arsenic",
+      "name": "Arsenic",
+      "kind": "poison",
+      "level": 1,
+      "saveDc": 18,
+      "virulent": false,
+      "maxDurationRounds": 10,
+      "stages": [
+        {
+          "damageDice": 1,
+          "damageDie": 4,
+          "damageBonus": 0,
+          "conditions": [
+            "sickened"
+          ],
+          "conditionValue": 1,
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 1,
+          "damageDie": 6,
+          "damageBonus": 0,
+          "conditions": [
+            "sickened"
+          ],
+          "conditionValue": 2,
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 1,
+          "damageDie": 8,
+          "damageBonus": 0,
+          "conditions": [
+            "sickened"
+          ],
+          "conditionValue": 3,
+          "intervalRounds": 1
+        }
+      ],
+      "aonId": 3322,
+      "aonUrl": "https://2e.aonprd.com/Equipment.aspx?ID=3322",
+      "summary": "This toxin is a compound of arsenic and other substances. You can't reduce your sickened condition while affected. Saving Throw DC 18 …"
+    },
+    {
+      "id": "giant_centipede_venom",
+      "name": "Giant Centipede Venom",
+      "kind": "poison",
+      "level": 1,
+      "saveDc": 17,
+      "virulent": false,
+      "maxDurationRounds": 6,
+      "stages": [
+        {
+          "damageDice": 1,
+          "damageDie": 4,
+          "damageBonus": 0,
+          "conditions": [],
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 1,
+          "damageDie": 4,
+          "damageBonus": 0,
+          "conditions": [
+            "fatigued"
+          ],
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 1,
+          "damageDie": 4,
+          "damageBonus": 0,
+          "conditions": [
+            "clumsy",
+            "fatigued"
+          ],
+          "conditionValue": 1,
+          "intervalRounds": 1
+        }
+      ],
+      "aonId": 3334,
+      "aonUrl": "https://2e.aonprd.com/Equipment.aspx?ID=3334",
+      "summary": "Giant centipede venom causes severe muscle stiffness and general fatigue. Saving Throw DC 17 Fortitude; Maximum Duration 6 rounds; Stage 1 …"
+    },
+    {
+      "id": "goblin_pox",
+      "name": "Goblin Pox",
+      "kind": "disease",
+      "level": 1,
+      "saveDc": 14,
+      "virulent": false,
+      "maxDurationRounds": 10,
+      "stages": [
+        {
+          "damageDice": 0,
+          "damageBonus": 0,
+          "conditions": [
+            "sickened"
+          ],
+          "conditionValue": 1,
+          "intervalRounds": 2
+        },
+        {
+          "damageDice": 0,
+          "damageBonus": 0,
+          "conditions": [
+            "sickened"
+          ],
+          "conditionValue": 1,
+          "intervalRounds": 2
+        },
+        {
+          "damageDice": 0,
+          "damageBonus": 0,
+          "conditions": [
+            "sickened"
+          ],
+          "conditionValue": 2,
+          "intervalRounds": 2
+        }
+      ],
+      "aonId": 1545,
+      "aonUrl": "https://2e.aonprd.com/Spells.aspx?ID=1545",
+      "summary": "Infect a creature with goblin pox."
+    },
+    {
+      "id": "black_adder_venom",
+      "name": "Black Adder Venom",
+      "kind": "poison",
+      "level": 2,
+      "saveDc": 18,
+      "virulent": false,
+      "maxDurationRounds": 6,
+      "stages": [
+        {
+          "damageDice": 1,
+          "damageDie": 4,
+          "damageBonus": 0,
+          "conditions": [],
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 1,
+          "damageDie": 6,
+          "damageBonus": 0,
+          "conditions": [],
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 1,
+          "damageDie": 8,
+          "damageBonus": 0,
+          "conditions": [],
+          "intervalRounds": 1
+        }
+      ],
+      "aonId": 3324,
+      "aonUrl": "https://2e.aonprd.com/Equipment.aspx?ID=3324",
+      "summary": "Adder venom is a simple but effective way to enhance a weapon. Saving Throw DC 18 Fortitude; Maximum Duration 3 rounds; Stage 1 1d4 poison …"
+    },
+    {
+      "id": "giant_scorpion_venom",
+      "name": "Giant Scorpion Venom",
+      "kind": "poison",
+      "level": 6,
+      "saveDc": 22,
+      "virulent": false,
+      "maxDurationRounds": 6,
+      "stages": [
+        {
+          "damageDice": 2,
+          "damageDie": 6,
+          "damageBonus": 0,
+          "conditions": [
+            "enfeebled"
+          ],
+          "conditionValue": 1,
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 2,
+          "damageDie": 8,
+          "damageBonus": 0,
+          "conditions": [
+            "enfeebled"
+          ],
+          "conditionValue": 1,
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 2,
+          "damageDie": 10,
+          "damageBonus": 0,
+          "conditions": [
+            "enfeebled"
+          ],
+          "conditionValue": 2,
+          "intervalRounds": 1
+        }
+      ],
+      "aonId": 3335,
+      "aonUrl": "https://2e.aonprd.com/Equipment.aspx?ID=3335",
+      "summary": "The venom of a giant scorpion is excruciating and its effects are somewhat debilitating. Saving Throw DC 22 Fortitude; Maximum Duration 6 …"
+    },
+    {
+      "id": "wyvern_poison",
+      "name": "Wyvern Poison",
+      "kind": "poison",
+      "level": 8,
+      "saveDc": 26,
+      "virulent": false,
+      "maxDurationRounds": 6,
+      "stages": [
+        {
+          "damageDice": 3,
+          "damageDie": 6,
+          "damageBonus": 0,
+          "conditions": [],
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 3,
+          "damageDie": 8,
+          "damageBonus": 0,
+          "conditions": [],
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 3,
+          "damageDie": 10,
+          "damageBonus": 0,
+          "conditions": [],
+          "intervalRounds": 1
+        }
+      ],
+      "aonId": 3350,
+      "aonUrl": "https://2e.aonprd.com/Equipment.aspx?ID=3350",
+      "summary": "Properly harvested, distilled, and preserved, the poison from a wyvern's sting is effective and direct. Saving Throw DC 26 Fortitude; Maximum …"
+    },
+    {
+      "id": "blightburn",
+      "name": "Blightburn",
+      "kind": "disease",
+      "level": 15,
+      "saveDc": 34,
+      "virulent": true,
+      "maxDurationRounds": 20,
+      "stages": [
+        {
+          "damageDice": 2,
+          "damageDie": 6,
+          "damageBonus": 0,
+          "conditions": [
+            "drained"
+          ],
+          "conditionValue": 1,
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 3,
+          "damageDie": 6,
+          "damageBonus": 0,
+          "conditions": [
+            "drained"
+          ],
+          "conditionValue": 2,
+          "intervalRounds": 1
+        },
+        {
+          "damageDice": 4,
+          "damageDie": 6,
+          "damageBonus": 0,
+          "conditions": [
+            "drained"
+          ],
+          "conditionValue": 3,
+          "intervalRounds": 1
+        }
+      ]
+    }
+  ]
+}

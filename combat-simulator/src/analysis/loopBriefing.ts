@@ -227,7 +227,9 @@ export function formatBriefingHtml(briefing: LoopBriefing): string {
   return `
   <section class="briefing">
     <h2>Analysis briefing</h2>
-    <p class="briefing-headline">${escapeHtml(briefing.headline)}</p>
+    <div class="callout">
+      <div class="title">${escapeHtml(briefing.headline)}</div>
+    </div>
     <h3>How it went</h3>
     <ul>${li(briefing.howItWent)}</ul>
     <div class="briefing-cols">

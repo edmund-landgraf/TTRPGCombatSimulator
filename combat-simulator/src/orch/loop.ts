@@ -49,6 +49,22 @@ function sideWiped(mem: CombatMemory): string | null {
   return null;
 }
 
+/** Next living, non-delayed combatant in the working initiative queue. */
+function peekNextActor(
+  mem: CombatMemory,
+  queue: string[],
+  fromIndex: number,
+  acted: Set<string>,
+): string | null {
+  for (let i = fromIndex; i < queue.length; i++) {
+    const id = queue[i]!;
+    const c = mem.combatants.get(id);
+    if (!c || c.downed || acted.has(id) || mem.delayed.has(id)) continue;
+    return id;
+  }
+  return null;
+}
+
 export async function runEncounter(fixture: EncounterFixture, opts: SimOptions): Promise<SimResult> {
   const maxRounds = opts.maxRounds ?? 20;
   const rng = new SeededRng(opts.seed);
@@ -179,10 +195,37 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
       if (sideWiped(mem)) break;
 
       const turnLines: string[] = [];
-      await runTurn(mem, justActed, rng, turnLines, opts.play ? opts.chooser : undefined);
+      if (opts.companion) {
+        opts.companion.setTurnCursor({
+          activeActorId: justActed,
+          nextActorId: peekNextActor(mem, queue, qi, acted),
+        });
+        opts.companion.refreshTheaterForActor(mem, justActed);
+        publish({ phase: "active" });
+      }
+      try {
+        await runTurn(mem, justActed, rng, turnLines, opts.play ? opts.chooser : undefined);
+      } catch (err) {
+        // UI chooser reject on clear/reset — stop the encounter cleanly.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/cancel|clear|reset/i.test(msg) && opts.companion) {
+          endReason = "cancelled";
+          winner = "draw";
+          break;
+        }
+        throw err;
+      }
       pushLines(turnLines);
       // Delay removes the actor without a normal turn — don't mark acted.
       if (!mem.delayed.has(justActed)) acted.add(justActed);
+      if (opts.companion) {
+        opts.companion.setTurnCursor({
+          activeActorId: null,
+          justActedId: justActed,
+          nextActorId: peekNextActor(mem, queue, qi, acted),
+          theater: null,
+        });
+      }
       publish({ phase: "active", actionLog: turnLines.join("\n") });
       if (!(await waitTurnPause())) break;
 
@@ -204,10 +247,36 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
         if (!inserted) break;
 
         const retTurn: string[] = [];
-        await runTurn(mem, inserted, rng, retTurn, opts.play ? opts.chooser : undefined);
+        if (opts.companion) {
+          opts.companion.setTurnCursor({
+            activeActorId: inserted,
+            nextActorId: peekNextActor(mem, queue, qi, acted),
+          });
+          opts.companion.refreshTheaterForActor(mem, inserted);
+          publish({ phase: "active" });
+        }
+        try {
+          await runTurn(mem, inserted, rng, retTurn, opts.play ? opts.chooser : undefined);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/cancel|clear|reset/i.test(msg) && opts.companion) {
+            endReason = "cancelled";
+            winner = "draw";
+            break;
+          }
+          throw err;
+        }
         pushLines(retTurn);
         if (!mem.delayed.has(inserted)) acted.add(inserted);
         justActed = inserted;
+        if (opts.companion) {
+          opts.companion.setTurnCursor({
+            activeActorId: null,
+            justActedId: justActed,
+            nextActorId: peekNextActor(mem, queue, qi, acted),
+            theater: null,
+          });
+        }
         publish({ phase: "active", actionLog: retTurn.join("\n") });
         if (!(await waitTurnPause())) break;
       }
@@ -287,6 +356,7 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
   // Clear/reset cancels waitForAdvance and wipes the session — do not republish a
   // zombie ended context (round N + empty rounds[]) over that clear.
   if (endReason !== "cancelled") {
+    if (opts.companion) opts.companion.clearTurnCursor();
     publish({ phase: "ended", endReason, winner });
   }
 

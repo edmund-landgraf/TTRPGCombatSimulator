@@ -64,12 +64,15 @@ export type StudioSettings = {
   pauseEachRound: boolean;
   /** Pause after each PC/enemy turn until Enter; sticky map updates live each pause. */
   pauseEachTurn: boolean;
+  /** When true, Studio waits for UI action picks on party turns (enemies stay AI). */
+  controlPartyTurns: boolean;
 };
 
 const DEFAULT_SETTINGS: StudioSettings = {
   saveTacticsLogs: true,
   pauseEachRound: true,
   pauseEachTurn: false,
+  controlPartyTurns: true,
 };
 
 const SETTINGS_FILE = path.join(process.cwd(), "logs", "tactics", ".settings.json");
@@ -91,6 +94,10 @@ function loadStudioSettings(): StudioSettings {
           typeof raw.pauseEachTurn === "boolean"
             ? raw.pauseEachTurn
             : DEFAULT_SETTINGS.pauseEachTurn,
+        controlPartyTurns:
+          typeof raw.controlPartyTurns === "boolean"
+            ? raw.controlPartyTurns
+            : DEFAULT_SETTINGS.controlPartyTurns,
       };
     }
   } catch {
@@ -301,6 +308,9 @@ async function handleStudioApi(
       if (typeof body.pauseEachTurn === "boolean") {
         studioSettings.pauseEachTurn = body.pauseEachTurn;
       }
+      if (typeof body.controlPartyTurns === "boolean") {
+        studioSettings.controlPartyTurns = body.controlPartyTurns;
+      }
       persistStudioSettings(studioSettings);
       json(res, 200, studioSettings);
     } catch (err) {
@@ -337,8 +347,9 @@ async function handleStudioApi(
             if (ok) llm = ollama;
           }
           console.error(
-            `[studio] saveTacticsLogs=${studioSettings.saveTacticsLogs} pauseEachRound=${studioSettings.pauseEachRound} pauseEachTurn=${studioSettings.pauseEachTurn} saveRuns=${runHooks.save !== false}`,
+            `[studio] saveTacticsLogs=${studioSettings.saveTacticsLogs} pauseEachRound=${studioSettings.pauseEachRound} pauseEachTurn=${studioSettings.pauseEachTurn} controlPartyTurns=${studioSettings.controlPartyTurns} saveRuns=${runHooks.save !== false}`,
           );
+          const controlParty = studioSettings.controlPartyTurns;
           const result = await runEncounter(fixture, {
             seed: runHooks.seed ?? 42,
             save: runHooks.save !== false,
@@ -350,6 +361,8 @@ async function handleStudioApi(
             companion: companionSession,
             pauseEachRound: studioSettings.pauseEachRound,
             pauseEachTurn: studioSettings.pauseEachTurn,
+            play: controlParty || !!runHooks.play,
+            chooser: controlParty ? companionSession.createUiChooser() : undefined,
           });
           if (result.tacticsLogPath) {
             console.error(`[studio] Tactics log: ${result.tacticsLogPath}`);
@@ -453,6 +466,26 @@ async function handleStudioApi(
       waitingForAdvance: companionSession.waitingForAdvance,
       context: companionSession.context,
     });
+    return true;
+  }
+
+  if (req.method === "POST" && pathname === "/api/combat/choose") {
+    try {
+      const body = JSON.parse((await readBody(req)) || "{}") as { key?: string };
+      if (!body.key || typeof body.key !== "string") {
+        json(res, 400, { error: "key required" });
+        return true;
+      }
+      companionSession.submitPlayerChoice(body.key);
+      json(res, 200, {
+        ok: true,
+        message: `Chose action ${body.key}`,
+        context: companionSession.context,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      json(res, 409, { error: msg, context: companionSession.context });
+    }
     return true;
   }
 
