@@ -2,6 +2,8 @@
 
 PF2e-inspired CLI combat loop. Engine owns rolls and HP; ASCII map shows positions only.
 
+Project overview and repo layout: [`../README.md`](../README.md).
+
 ## Setup
 
 ```bash
@@ -30,7 +32,6 @@ callout, matrix table, charts, briefing). Also available in Studio → **Loop** 
 
 Director-note batches (`npx tsx scripts/batch10.ts`) write the same style of dashboard to
 `runs/batch10/batch10-results.html` (outcomes table, rounds/damage charts, tactics rejects).
-```
 
 Print PF2e rules blurbs for actions / topics (`brief` default, or `verbose`):
 
