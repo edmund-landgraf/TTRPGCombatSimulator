@@ -105,7 +105,8 @@ export function toGridSquare(pos: Position): string {
 }
 
 export function agileWeaponEquipped(actor: CombatantState): boolean {
-  return actor.weapons.some((w) => w.agile === true);
+  const held = actor.weapons.find((w) => w.id === actor.heldWeaponId);
+  return held?.agile === true;
 }
 
 /**

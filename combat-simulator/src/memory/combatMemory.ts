@@ -1,8 +1,10 @@
 import type {
   AiProfile,
+  Consumable,
   EncounterFixture,
   Position,
   Spell,
+  SizeCategory,
   TacticsGroupId,
   Weapon,
   WeightDelta,
@@ -15,6 +17,7 @@ import type { CombatStateSnapshot } from "../ai/combatStateParser.js";
 import type { GrandmasterTurnPlan } from "../ai/grandmasterLoop.js";
 import { resolveTacticsGroup } from "../ai/tacticsGroups.js";
 import { placeHazardsFromFixture } from "../rules/pf2e/hazard.js";
+import { resolveDefaultWeaponId } from "../rules/pf2e/heldWeapon.js";
 import type { Hazard } from "./schemas.js";
 
 export type Condition = { id: string; name: string; value?: number };
@@ -53,6 +56,7 @@ export type CombatantState = {
   tokenChar: string;
   /** Creature/PC level (spell rank gate). */
   level: number;
+  sizeCategory: SizeCategory;
   /** Class / creature id for packet composition. */
   classId: string;
   /** Dedication / monster-family archetype tags. */
@@ -67,9 +71,15 @@ export type CombatantState = {
   saveBonus: number;
   pos: Position;
   weapons: Weapon[];
+  /** Currently wielded weapon id (must be in weapons[]). */
+  heldWeaponId: string;
   spells: Spell[];
+  /** Potions, scrolls, and other turn-usable gear. */
+  items: Consumable[];
   /** Ranked spell id → times used this combat. */
   spellUses: Map<string, number>;
+  /** Consumable id → times used this combat. */
+  itemUses: Map<string, number>;
   aiProfile: AiProfile;
   /** Primary tactics group driving AI playstyle. */
   tacticsGroup: TacticsGroupId;
@@ -178,6 +188,10 @@ export type CombatEvent =
       dmg: number;
       hpAfter: number;
       map: number;
+      /** Circumstance AC bonus from cover (+1 lesser, +2 standard). */
+      coverBonus?: number;
+      /** Reactive Strike / Attack of Opportunity (off-turn). */
+      reaction?: boolean;
       /** Fog / mist: DC 5 flat check before the attack roll (concealed). */
       concealedFlat?: { d20: number; dc: number; passed: boolean };
     }
@@ -214,6 +228,22 @@ export type CombatEvent =
       concealedFlat?: { d20: number; dc: number; passed: boolean };
     }
   | {
+      t: "item";
+      round: number;
+      actor: string;
+      target: string;
+      item: string;
+      itemName: string;
+      kind: "potion" | "scroll";
+      healAmt?: number;
+      dmg: number;
+      hpAfter: number;
+      actionsSpent: number;
+      /** Scroll-only: spell id/name when the item cast a spell. */
+      spell?: string;
+      spellName?: string;
+    }
+  | {
       t: "affliction";
       round: number;
       actor: string;
@@ -238,6 +268,13 @@ export type CombatEvent =
       round: number;
       actor: string;
       reason: string;
+    }
+  | {
+      t: "switch_weapon";
+      round: number;
+      actor: string;
+      from: string;
+      to: string;
     }
   | {
       t: "end_turn";
@@ -355,6 +392,7 @@ export function createMemory(
       role: c.role,
       tokenChar: c.tokenChar,
       level: c.level ?? 1,
+      sizeCategory: c.sizeCategory ?? "medium",
       classId: c.classId ?? c.role.toLowerCase().replace(/\s+/g, "_"),
       archetypes: c.archetypes ?? [],
       capabilities: c.capabilities ?? [],
@@ -366,8 +404,15 @@ export function createMemory(
       saveBonus: c.saveBonus ?? 3,
       pos: { ...c.start },
       weapons: c.weapons,
+      heldWeaponId: resolveDefaultWeaponId({
+        weapons: c.weapons,
+        defaultWeaponId: c.defaultWeaponId,
+        tacticsGroup: resolveTacticsGroup(c.tacticsGroup, c.role),
+      }),
       spells: c.spells ?? [],
+      items: c.items ?? [],
       spellUses: new Map(),
+      itemUses: new Map(),
       aiProfile: c.aiProfile,
       tacticsGroup: resolveTacticsGroup(c.tacticsGroup, c.role),
       tacticsSecondary: c.tacticsSecondary,

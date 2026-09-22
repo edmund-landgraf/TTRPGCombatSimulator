@@ -5,6 +5,7 @@ import { isHazardous } from "../../map/grid.js";
 import { findPath, moveAlongPath } from "../../map/pathfind.js";
 import { HAZARD_DAMAGE_PER_CELL } from "../../ai/spatialThreat.js";
 import { triggerHazardsOnEnter } from "./hazard.js";
+import { resolveReactiveStrikesOnMove } from "./reactiveStrike.js";
 import type { SeededRng } from "./rng.js";
 
 function applyHazardTraversal(
@@ -35,6 +36,7 @@ export function resolveStride(
   destination: Position,
   round: number,
   rng?: SeededRng,
+  log?: string[],
 ): boolean {
   const blocked = occupiedKeys(mem, actor.id);
   const path = findPath(mem.grid, actor.pos, destination, actor.speedCells, blocked);
@@ -65,6 +67,10 @@ export function resolveStride(
   const destIdx = path.path.findIndex((p) => cellId(p) === cellId(dest));
   const traversed = destIdx >= 0 ? path.path.slice(0, destIdx + 1) : path.path;
   applyHazardTraversal(mem, actor, traversed, round);
+  // Reactive Strike triggers on leaving each square (Step does not — handled in resolver).
+  if (rng && traversed.length > 1) {
+    resolveReactiveStrikesOnMove(mem, actor, traversed, "Stride", round, rng, { log });
+  }
   actor.pos = { ...dest };
   const to = cellId(actor.pos);
   mem.events.push({ t: "move", round, actor: actor.id, from, to, kind: "Stride" });

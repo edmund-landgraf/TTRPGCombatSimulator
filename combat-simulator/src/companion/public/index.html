@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Combat Studio</title>
-    <link rel="stylesheet" href="/styles.css?v=23" />
+    <link rel="stylesheet" href="/styles.css?v=25" />
   </head>
   <body>
     <div class="shell">
@@ -33,14 +33,13 @@
 
             <div class="setup-grid">
               <section class="panel">
-                <h2>PCs (JSON)</h2>
+                <h2>PCs</h2>
                 <p class="hint">
-                  Array of combatants, or one object. Side is forced to party. Assign a
-                  <strong>primary</strong> tactics group and optional <strong>secondary</strong>
-                  (e.g. frontliner + battlefield control).
+                  Import JSON or load the sample, then use <strong>Loadout</strong> to edit weapons,
+                  prepared spells, potions, and scrolls. Assign primary + optional secondary tactics.
                 </p>
                 <label class="file-btn">
-                  Choose JSON
+                  Import JSON
                   <input type="file" id="pcsFile" accept=".json,application/json" hidden />
                 </label>
                 <ul id="pcsList" class="import-list"></ul>
@@ -151,8 +150,8 @@
               </div>
             </header>
             <div class="theater-body">
-              <aside id="initRoster" class="init-roster" aria-label="Initiative and roster" hidden>
-                <h2 class="theater-side-title">Initiative</h2>
+              <aside id="initRoster" class="init-roster" aria-label="Initiative map and roster" hidden>
+                <h2 class="theater-side-title">Initiative map</h2>
                 <ol id="initList" class="init-list"></ol>
                 <h2 class="theater-side-title">Combatants</h2>
                 <ul id="rosterList" class="roster-list"></ul>
@@ -287,6 +286,15 @@
             </div>
             <div class="pills header-actions">
               <span id="chatCombatPill" class="pill muted">no combat</span>
+              <button
+                type="button"
+                id="toggleChat"
+                class="ghost chat-collapse-toggle"
+                aria-expanded="true"
+                aria-controls="view-chat"
+              >
+                Hide chat
+              </button>
               <button type="button" id="clearChat" class="ghost">Clear</button>
             </div>
           </header>
@@ -301,6 +309,17 @@
             <button type="submit" id="send">Ask</button>
           </form>
         </aside>
+        <button
+          type="button"
+          id="expandChatTab"
+          class="chat-expand-tab"
+          aria-label="Show chat"
+          aria-expanded="false"
+          aria-controls="view-chat"
+          hidden
+        >
+          Chat
+        </button>
       </div>
     </div>
     <canvas id="sampleCanvas" hidden></canvas>
@@ -369,6 +388,6 @@
       </div>
     </div>
 
-    <script src="/app.js?v=23"></script>
+    <script src="/app.js?v=25"></script>
   </body>
 </html>

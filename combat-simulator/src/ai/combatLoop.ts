@@ -213,7 +213,7 @@ export function precomputeReactions(actor: CombatantState): ReactionPlan {
       (packet === "fighter" && (actor.shieldHardness ?? 0) > 0) ||
       packet === "fighter");
   const parts: string[] = [];
-  if (reactiveStrike) parts.push("Reactive Strike armed (planned)");
+  if (reactiveStrike) parts.push("Reactive Strike armed");
   if (shieldBlock) parts.push("Shield Block intent (planned)");
   if (parts.length === 0) parts.push("no reaction pre-armed");
   return { reactiveStrike, shieldBlock, note: parts.join("; ") };

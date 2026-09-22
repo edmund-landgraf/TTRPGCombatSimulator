@@ -15,7 +15,9 @@ type Template = Omit<
   | "tokenChar"
   | "saveBonus"
   | "spells"
+  | "items"
   | "level"
+  | "sizeCategory"
   | "tacticsGroup"
   | "tacticsSecondary"
   | "shieldHardness"
@@ -56,7 +58,17 @@ export const PC_TEMPLATES: Template[] = [
     perceptionBonus: 3,
     shieldHardness: 5,
     shieldHp: 20,
+    defaultWeaponId: "glaive",
     weapons: [
+      {
+        id: "glaive",
+        kind: "melee",
+        attackBonus: 7,
+        damageDice: 1,
+        damageDie: 10,
+        damageBonus: 3,
+        reach: 2,
+      },
       {
         id: "longsword",
         kind: "melee",
@@ -67,6 +79,7 @@ export const PC_TEMPLATES: Template[] = [
         reach: 1,
       },
     ],
+    capabilities: ["reactive_strike", "shield_block"],
     aiProfile: {
       weights: {
         Strike_melee: 1.4,
@@ -176,6 +189,7 @@ export const PC_TEMPLATES: Template[] = [
         tactic: "crowd_control",
         applyCondition: "asleep",
         skipIfSaveBonusGte: 5,
+        blastRadius: 1,
       },
     ],
     aiProfile: {
@@ -205,6 +219,7 @@ export const PC_TEMPLATES: Template[] = [
     ac: 17,
     speedCells: 6,
     perceptionBonus: 5,
+    defaultWeaponId: "shortsword",
     weapons: [
       {
         id: "shortsword",

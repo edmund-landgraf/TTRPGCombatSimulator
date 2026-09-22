@@ -15,6 +15,9 @@ const els = {
   clear: $("clearChat"),
   chatMeta: $("chatMeta"),
   chatCombatPill: $("chatCombatPill"),
+  chatDock: $("view-chat"),
+  toggleChat: $("toggleChat"),
+  expandChatTab: $("expandChatTab"),
   clearCombatBtn: $("clearCombatBtn"),
   advanceRoundBtn: $("advanceRoundBtn"),
   battleMapWrap: $("battleMapWrap"),
@@ -82,6 +85,8 @@ const els = {
 };
 
 const SETTINGS_KEY = "combatStudio.settings";
+const CHAT_COLLAPSED_KEY = "combatStudio.chatCollapsed";
+const NARROW_SCREEN_MQ = window.matchMedia("(max-width: 900px)");
 
 function defaultSettings() {
   return {
@@ -116,6 +121,44 @@ function readLocalSettings() {
 
 function writeLocalSettings(settings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function readChatCollapsed() {
+  try {
+    return localStorage.getItem(CHAT_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeChatCollapsed(collapsed) {
+  try {
+    localStorage.setItem(CHAT_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+function updateChatCollapseToggle(collapsed) {
+  if (!els.toggleChat) return;
+  els.toggleChat.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  els.toggleChat.textContent = collapsed ? "Show chat" : "Hide chat";
+}
+
+function setChatCollapsed(collapsed, { persist = true } = {}) {
+  if (!els.shell) return;
+  els.shell.classList.toggle("chat-collapsed", collapsed);
+  updateChatCollapseToggle(collapsed);
+  if (els.expandChatTab) {
+    const showTab = collapsed && !NARROW_SCREEN_MQ.matches;
+    els.expandChatTab.hidden = !showTab;
+    els.expandChatTab.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
+  if (persist) writeChatCollapsed(collapsed);
+}
+
+function applyChatCollapsePreference() {
+  setChatCollapsed(readChatCollapsed(), { persist: false });
 }
 
 function openSettingsModal() {
@@ -335,7 +378,7 @@ function fillTacticsSelect(sel, groups, selectedId, { includeNone = false } = {}
   }
 }
 
-function renderList(el, items, tacticsGroups = []) {
+function renderList(el, items, tacticsGroups = [], opts = {}) {
   el.innerHTML = "";
   if (!items?.length) {
     el.innerHTML = `<li class="muted">None imported</li>`;
@@ -357,7 +400,12 @@ function renderList(el, items, tacticsGroups = []) {
     li.className = "unit-row";
     const meta = document.createElement("div");
     meta.className = "unit-meta";
-    meta.textContent = `${c.name} (${c.id}) HP ${c.hp} AC ${c.ac} @ ${c.start.x},${c.start.y}`;
+    const loadoutBits = [];
+    if (c.weaponCount != null) loadoutBits.push(`${c.weaponCount} wpn`);
+    if (c.spellCount) loadoutBits.push(`${c.spellCount} spl`);
+    if (c.itemCount) loadoutBits.push(`${c.itemCount} item`);
+    const loadoutNote = loadoutBits.length ? ` · ${loadoutBits.join(", ")}` : "";
+    meta.textContent = `${c.name} (${c.id}) HP ${c.hp} AC ${c.ac} @ ${c.start.x},${c.start.y}${loadoutNote}`;
 
     const stack = document.createElement("div");
     stack.className = "tactics-stack";
@@ -389,7 +437,6 @@ function renderList(el, items, tacticsGroups = []) {
       });
     };
     primarySel.addEventListener("change", () => {
-      // Clear secondary if it matches the new primary.
       if (secondarySel.value === primarySel.value) secondarySel.value = "none";
       saveTactics();
     });
@@ -397,10 +444,355 @@ function renderList(el, items, tacticsGroups = []) {
 
     stack.appendChild(primaryLabel);
     stack.appendChild(secondaryLabel);
-    li.appendChild(meta);
-    li.appendChild(stack);
+
+    const actions = document.createElement("div");
+    actions.className = "unit-actions";
+    if (opts.editableLoadout) {
+      const loadoutBtn = document.createElement("button");
+      loadoutBtn.type = "button";
+      loadoutBtn.className = "loadout-btn";
+      loadoutBtn.textContent = "Loadout";
+      loadoutBtn.title = "Edit weapons, spells, potions, and scrolls";
+      const editor = document.createElement("div");
+      editor.className = "loadout-editor";
+      editor.hidden = true;
+      loadoutBtn.addEventListener("click", () => {
+        const opening = editor.hidden;
+        editor.hidden = !opening;
+        if (opening) openLoadoutEditor(c.id, editor).catch((err) => {
+          if (els.setupMsg) els.setupMsg.textContent = err.message || String(err);
+        });
+      });
+      actions.appendChild(loadoutBtn);
+      li.appendChild(meta);
+      li.appendChild(stack);
+      li.appendChild(actions);
+      li.appendChild(editor);
+    } else {
+      li.appendChild(meta);
+      li.appendChild(stack);
+    }
     el.appendChild(li);
   }
+}
+
+function loadoutField(label, value, type = "text") {
+  const wrap = document.createElement("label");
+  wrap.textContent = label;
+  const input = document.createElement("input");
+  input.type = type;
+  input.value = value ?? "";
+  wrap.appendChild(input);
+  return { wrap, input };
+}
+
+function loadoutSelect(label, value, options) {
+  const wrap = document.createElement("label");
+  wrap.textContent = label;
+  const sel = document.createElement("select");
+  for (const opt of options) {
+    const o = document.createElement("option");
+    o.value = opt.value;
+    o.textContent = opt.label;
+    if (String(opt.value) === String(value)) o.selected = true;
+    sel.appendChild(o);
+  }
+  wrap.appendChild(sel);
+  return { wrap, input: sel };
+}
+
+function collectWeaponRow(row) {
+  const inputs = row.querySelectorAll("input, select");
+  const [id, kind, attackBonus, damageDice, damageDie, damageBonus] = inputs;
+  return {
+    id: id.value.trim() || "weapon",
+    kind: kind.value,
+    attackBonus: Number(attackBonus.value) || 0,
+    damageDice: Number(damageDice.value) || 1,
+    damageDie: Number(damageDie.value) || 6,
+    damageBonus: Number(damageBonus.value) || 0,
+    reach: 1,
+  };
+}
+
+function collectSpellRow(row) {
+  const inputs = row.querySelectorAll("input, select");
+  const [id, name, kind, rank, actions, usesPerCombat] = inputs;
+  const spell = {
+    id: id.value.trim() || "spell",
+    name: name.value.trim() || "Spell",
+    kind: kind.value,
+    rank: Number(rank.value) || 0,
+    actions: Number(actions.value) || 2,
+    rangeCells: 6,
+  };
+  const uses = Number(usesPerCombat.value);
+  if (uses > 0 && Number(rank.value) > 0) spell.usesPerCombat = uses;
+  return spell;
+}
+
+function collectItemRow(row) {
+  const inputs = row.querySelectorAll("input, select");
+  const [id, name, kind, uses, actions, extra1, extra2, extra3] = inputs;
+  const item = {
+    id: id.value.trim() || "item",
+    name: name.value.trim() || "Item",
+    kind: kind.value,
+    uses: Number(uses.value) || 1,
+    actions: Number(actions.value) || 1,
+  };
+  if (kind.value === "potion") {
+    item.healDice = Number(extra1.value) || 1;
+    item.healDie = Number(extra2.value) || 8;
+    item.target = extra3.value;
+    item.tactic = "heal";
+    item.rangeCells = extra3.value === "self" ? 0 : 1;
+  } else {
+    item.target = extra1.value;
+    item.spell = {
+      id: `${id.value.trim()}_spell`,
+      name: extra2.value.trim() || "Scroll spell",
+      kind: extra3.value,
+      rank: 1,
+      actions: 2,
+      rangeCells: 6,
+      attackBonus: 7,
+      damageDice: 1,
+      damageDie: 6,
+      damageBonus: 0,
+    };
+    if (extra3.value === "heal") {
+      item.spell.healDice = 1;
+      item.spell.healDie = 8;
+      item.spell.healBonus = 4;
+      item.tactic = "heal";
+    } else if (extra3.value === "save") {
+      item.spell.saveDc = 17;
+      item.spell.damageDice = 1;
+      item.spell.damageDie = 6;
+      item.tactic = "offense";
+    } else {
+      item.tactic = "offense";
+    }
+  }
+  return item;
+}
+
+function renderWeaponRow(container, weapon = {}) {
+  const row = document.createElement("div");
+  row.className = "loadout-row";
+  const fields = [
+    loadoutField("Id", weapon.id ?? "weapon"),
+    loadoutSelect("Kind", weapon.kind ?? "melee", [
+      { value: "melee", label: "Melee" },
+      { value: "ranged", label: "Ranged" },
+    ]),
+    loadoutField("Atk +", weapon.attackBonus ?? 5, "number"),
+    loadoutField("Dice", weapon.damageDice ?? 1, "number"),
+    loadoutField("Die", weapon.damageDie ?? 6, "number"),
+    loadoutField("Bonus", weapon.damageBonus ?? 0, "number"),
+  ];
+  for (const f of fields) row.appendChild(f.wrap);
+  const actions = document.createElement("div");
+  actions.className = "row-actions";
+  const rm = document.createElement("button");
+  rm.type = "button";
+  rm.textContent = "Remove";
+  rm.addEventListener("click", () => row.remove());
+  actions.appendChild(rm);
+  row.appendChild(actions);
+  container.appendChild(row);
+}
+
+function renderSpellRow(container, spell = {}) {
+  const row = document.createElement("div");
+  row.className = "loadout-row";
+  const fields = [
+    loadoutField("Id", spell.id ?? "spell"),
+    loadoutField("Name", spell.name ?? "Spell"),
+    loadoutSelect("Kind", spell.kind ?? "attack", [
+      { value: "attack", label: "Attack" },
+      { value: "save", label: "Save" },
+      { value: "heal", label: "Heal" },
+    ]),
+    loadoutField("Rank", spell.rank ?? 0, "number"),
+    loadoutField("Actions", spell.actions ?? 2, "number"),
+    loadoutField("Uses", spell.usesPerCombat ?? "", "number"),
+  ];
+  for (const f of fields) row.appendChild(f.wrap);
+  const actions = document.createElement("div");
+  actions.className = "row-actions";
+  const rm = document.createElement("button");
+  rm.type = "button";
+  rm.textContent = "Remove";
+  rm.addEventListener("click", () => row.remove());
+  actions.appendChild(rm);
+  row.appendChild(actions);
+  container.appendChild(row);
+}
+
+function renderItemRow(container, item = {}) {
+  const row = document.createElement("div");
+  row.className = "loadout-row";
+  const kind = item.kind ?? "potion";
+  const fields = [
+    loadoutField("Id", item.id ?? "item"),
+    loadoutField("Name", item.name ?? "Item"),
+    loadoutSelect("Kind", kind, [
+      { value: "potion", label: "Potion" },
+      { value: "scroll", label: "Scroll" },
+    ]),
+    loadoutField("Qty", item.uses ?? 1, "number"),
+    loadoutField("Actions", item.actions ?? 1, "number"),
+  ];
+  for (const f of fields) row.appendChild(f.wrap);
+  if (kind === "scroll") {
+    fields.push(
+      loadoutSelect("Target", item.target ?? "foe", [
+        { value: "foe", label: "Foe" },
+        { value: "ally", label: "Ally" },
+        { value: "self", label: "Self" },
+      ]),
+      loadoutField("Spell name", item.spell?.name ?? "Scroll spell"),
+      loadoutSelect("Spell kind", item.spell?.kind ?? "attack", [
+        { value: "attack", label: "Attack" },
+        { value: "save", label: "Save" },
+        { value: "heal", label: "Heal" },
+      ]),
+    );
+  } else {
+    fields.push(
+      loadoutField("Heal dice", item.healDice ?? 1, "number"),
+      loadoutField("Heal die", item.healDie ?? 8, "number"),
+      loadoutSelect("Target", item.target ?? "self", [
+        { value: "self", label: "Self" },
+        { value: "ally", label: "Ally" },
+      ]),
+    );
+  }
+  for (let i = 5; i < fields.length; i++) row.appendChild(fields[i].wrap);
+  const actions = document.createElement("div");
+  actions.className = "row-actions";
+  const rm = document.createElement("button");
+  rm.type = "button";
+  rm.textContent = "Remove";
+  rm.addEventListener("click", () => row.remove());
+  actions.appendChild(rm);
+  row.appendChild(actions);
+  container.appendChild(row);
+}
+
+function renderLoadoutEditor(container, loadout) {
+  container.innerHTML = "";
+  const weaponsSec = document.createElement("div");
+  weaponsSec.className = "loadout-section";
+  weaponsSec.innerHTML = "<h3>Weapons</h3>";
+  const weaponsList = document.createElement("div");
+  weaponsSec.appendChild(weaponsList);
+  const weaponBar = document.createElement("div");
+  weaponBar.className = "loadout-toolbar";
+  const addWeapon = document.createElement("button");
+  addWeapon.type = "button";
+  addWeapon.textContent = "+ Weapon";
+  addWeapon.addEventListener("click", () => renderWeaponRow(weaponsList));
+  weaponBar.appendChild(addWeapon);
+  weaponsSec.appendChild(weaponBar);
+  for (const w of loadout.weapons ?? []) renderWeaponRow(weaponsList, w);
+  if (!loadout.weapons?.length) renderWeaponRow(weaponsList);
+
+  const spellsSec = document.createElement("div");
+  spellsSec.className = "loadout-section";
+  spellsSec.innerHTML = "<h3>Prepared spells</h3>";
+  const spellsList = document.createElement("div");
+  spellsSec.appendChild(spellsList);
+  const spellBar = document.createElement("div");
+  spellBar.className = "loadout-toolbar";
+  const addSpell = document.createElement("button");
+  addSpell.type = "button";
+  addSpell.textContent = "+ Spell";
+  addSpell.addEventListener("click", () => renderSpellRow(spellsList));
+  spellBar.appendChild(addSpell);
+  spellsSec.appendChild(spellBar);
+  for (const s of loadout.spells ?? []) renderSpellRow(spellsList, s);
+
+  const itemsSec = document.createElement("div");
+  itemsSec.className = "loadout-section";
+  itemsSec.innerHTML = "<h3>Potions & scrolls</h3>";
+  const itemsList = document.createElement("div");
+  itemsSec.appendChild(itemsList);
+  const itemBar = document.createElement("div");
+  itemBar.className = "loadout-toolbar";
+  const addPotion = document.createElement("button");
+  addPotion.type = "button";
+  addPotion.textContent = "+ Healing potion";
+  addPotion.addEventListener("click", () =>
+    renderItemRow(itemsList, {
+      id: "healing_potion",
+      name: "Minor Healing Potion",
+      kind: "potion",
+      uses: 1,
+      healDice: 1,
+      healDie: 8,
+      target: "self",
+    }),
+  );
+  const addScroll = document.createElement("button");
+  addScroll.type = "button";
+  addScroll.textContent = "+ Attack scroll";
+  addScroll.addEventListener("click", () =>
+    renderItemRow(itemsList, {
+      id: "scroll_attack",
+      name: "Scroll of Force Bolt",
+      kind: "scroll",
+      uses: 1,
+      target: "foe",
+      spell: { name: "Force Bolt", kind: "attack" },
+    }),
+  );
+  itemBar.appendChild(addPotion);
+  itemBar.appendChild(addScroll);
+  itemsSec.appendChild(itemBar);
+  for (const it of loadout.items ?? []) renderItemRow(itemsList, it);
+
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "accent-btn loadout-save";
+  saveBtn.textContent = "Save loadout";
+  saveBtn.addEventListener("click", () => {
+    const weapons = [...weaponsList.querySelectorAll(".loadout-row")].map(collectWeaponRow);
+    const spells = [...spellsList.querySelectorAll(".loadout-row")].map(collectSpellRow);
+    const items = [...itemsList.querySelectorAll(".loadout-row")].map(collectItemRow);
+    saveCombatantLoadout(loadout.id, { weapons, spells, items }).catch((err) => {
+      if (els.setupMsg) els.setupMsg.textContent = err.message || String(err);
+    });
+  });
+
+  container.append(weaponsSec, spellsSec, itemsSec, saveBtn);
+}
+
+async function openLoadoutEditor(id, container) {
+  const loadout = await apiJson(`/api/studio/combatant/${encodeURIComponent(id)}/loadout`);
+  renderLoadoutEditor(container, loadout);
+}
+
+async function saveCombatantLoadout(id, patch) {
+  const data = await apiJson(`/api/studio/combatant/${encodeURIComponent(id)}/loadout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  renderStudio(data, data.mapImage);
+  if (els.setupMsg) els.setupMsg.textContent = `Saved loadout for ${id}`;
+}
+
+async function saveCombatantLoadout(id, patch) {
+  const data = await apiJson(`/api/studio/combatant/${encodeURIComponent(id)}/loadout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  renderStudio(data, data.mapImage);
+  if (els.setupMsg) els.setupMsg.textContent = `Saved loadout for ${id}`;
 }
 
 async function setUnitTacticsGroup(id, tacticsGroup, tacticsSecondary = null) {
@@ -416,10 +808,54 @@ async function setUnitTacticsGroup(id, tacticsGroup, tacticsSecondary = null) {
   }
 }
 
+/** Last rendered import-list snapshot so polling does not rebuild open <select>s. */
+let lastImportListKey = "";
+
+function importListFingerprint(studio) {
+  const unit = (c) =>
+    c
+      ? [
+          c.id,
+          c.name,
+          c.hp,
+          c.ac,
+          c.start?.x,
+          c.start?.y,
+          c.weaponCount,
+          c.spellCount,
+          c.itemCount,
+          c.tacticsGroup || "",
+          c.tacticsSecondary || "",
+        ].join(":")
+      : "";
+  const groups = (studio.tacticsGroups || []).map((g) => g.id).join(",");
+  return [
+    groups,
+    (studio.pcs || []).map(unit).join("|"),
+    (studio.enemies || []).map(unit).join("|"),
+  ].join("\n");
+}
+
+function importListIsInteractive() {
+  const active = document.activeElement;
+  if (active && (active.tagName === "SELECT" || active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
+    if (els.pcsList?.contains(active) || els.enemiesList?.contains(active)) return true;
+  }
+  return !!(
+    els.pcsList?.querySelector(".loadout-editor:not([hidden])") ||
+    els.enemiesList?.querySelector(".loadout-editor:not([hidden])")
+  );
+}
+
 function renderStudio(studio, mapImage, opts = {}) {
   if (!studio) return;
-  renderList(els.pcsList, studio.pcs, studio.tacticsGroups);
-  renderList(els.enemiesList, studio.enemies, studio.tacticsGroups);
+  const listKey = importListFingerprint(studio);
+  const listsBusy = importListIsInteractive();
+  if (!listsBusy && listKey !== lastImportListKey) {
+    renderList(els.pcsList, studio.pcs, studio.tacticsGroups, { editableLoadout: true });
+    renderList(els.enemiesList, studio.enemies, studio.tacticsGroups);
+    lastImportListKey = listKey;
+  }
   // Only sync Size from server when asked — polling must not clobber the picker.
   if (opts.syncSize && studio.map?.width) {
     els.mapSize.value = String(studio.map.width);
@@ -539,6 +975,29 @@ function cellTerrainClass(tags) {
   return "cell-floor";
 }
 
+/** Studio terrain (walls/barricades) + live combat token positions for the theater map. */
+function mergeBoardTerrain(combatBoard, terrainBoard) {
+  if (!combatBoard?.width) return combatBoard;
+  if (
+    !terrainBoard?.width ||
+    combatBoard.width !== terrainBoard.width ||
+    combatBoard.height !== terrainBoard.height
+  ) {
+    return combatBoard;
+  }
+  const terrainBy = new Map(
+    (terrainBoard.cells || []).map((c) => [`${c.x},${c.y}`, c.tags || []]),
+  );
+  const cells = [];
+  for (let y = 1; y <= combatBoard.height; y++) {
+    for (let x = 1; x <= combatBoard.width; x++) {
+      const tags = terrainBy.get(`${x},${y}`) || ["blocking"];
+      cells.push({ x, y, tags: [...tags] });
+    }
+  }
+  return { ...combatBoard, cells };
+}
+
 function boardFingerprint(board) {
   if (!board?.width) return "";
   const toks = (board.tokens || [])
@@ -564,6 +1023,10 @@ function theaterFingerprint(theater, activeActorId) {
     t.awaitingPlayer ? 1 : 0,
     (t.choices || []).map((c) => c.key).join(""),
     (t.reachableCells || []).length,
+    (t.meleeReachCells || t.inRangeCells || []).length,
+    (t.rangedRangeCells || t.inRangeCells || []).length,
+    (t.threatenedCells || []).length,
+    (t.threatenedByCells || []).length,
     (t.inRangeCells || []).length,
     (t.noLosCells || []).length,
     (t.coverFromActor || []).length,
@@ -711,9 +1174,13 @@ function battleMapCellsHtml(board, editable = false, opts = {}) {
   const theater = opts.theater || null;
   const activeId = opts.activeActorId || null;
   const reach = setAsCellSet(theater?.reachableCells);
-  const range = setAsCellSet(theater?.inRangeCells);
+  const melee = setAsCellSet(theater?.meleeReachCells);
+  const range = setAsCellSet(theater?.rangedRangeCells || theater?.inRangeCells);
+  const control = setAsCellSet(theater?.threatenedCells || theater?.meleeReachCells);
+  const aooZone = setAsCellSet(theater?.threatenedByCells);
   const noLos = setAsCellSet(theater?.noLosCells);
   const cover = setAsCellSet(theater?.coverFromActor);
+  const lesserCover = setAsCellSet(theater?.lesserCoverFromActor);
   const cells = [];
   for (let y = 1; y <= board.height; y++) {
     for (let x = 1; x <= board.width; x++) {
@@ -725,9 +1192,13 @@ function battleMapCellsHtml(board, editable = false, opts = {}) {
       const coord = cellIdFromXY(x, y);
       const hl = [];
       if (reach.has(coord)) hl.push("cell-reach");
+      if (melee.has(coord)) hl.push("cell-melee");
+      if (control.has(coord)) hl.push("cell-control");
+      if (aooZone.has(coord)) hl.push("cell-aoo");
       if (range.has(coord)) hl.push("cell-range");
       if (noLos.has(coord)) hl.push("cell-no-los");
       if (cover.has(coord)) hl.push("cell-cover-cue");
+      if (lesserCover.has(coord)) hl.push("cell-lesser-cover");
       const cellTitle = effectHint ? `${effectHint} — ${coord}` : coord;
       let inner = "";
       if (toks.length === 0 && tags.includes("grease")) {
@@ -738,6 +1209,10 @@ function battleMapCellsHtml(board, editable = false, opts = {}) {
         inner = `<span class="cell-marker hazardous" title="Hazardous">^</span>`;
       } else if (toks.length === 0 && tags.includes("barricade")) {
         inner = `<span class="cell-marker barricade" title="Barricade (soft cover)">B</span>`;
+      } else if (toks.length === 0 && tags.includes("wall_h")) {
+        inner = `<span class="cell-marker wall-h" title="Wall (horizontal)" aria-hidden="true">—</span>`;
+      } else if (toks.length === 0 && tags.includes("wall_v")) {
+        inner = `<span class="cell-marker wall-v" title="Wall (vertical)" aria-hidden="true">|</span>`;
       } else if (toks.length === 1) {
         const t = toks[0];
         const drag =
@@ -1034,33 +1509,42 @@ function renderInitRoster(ctx) {
   }
   wrap.hidden = false;
   const byId = new Map((ctx.combatants || []).map((c) => [c.id, c]));
+  const acted = new Set(ctx.actedThisRound || []);
   const order =
     ctx.initiative?.length > 0
       ? ctx.initiative
       : ctx.combatants.map((c) => c.id);
-  initList.innerHTML = order
-    .map((id) => {
-      const c = byId.get(id);
-      if (!c) return "";
-      const flags = [];
-      if (ctx.activeActorId === id) flags.push("active");
-      if (ctx.nextActorId === id) flags.push("next");
-      if (ctx.justActedId === id) flags.push("acted");
-      if (c.downed) flags.push("downed");
-      const mark =
-        ctx.activeActorId === id
+  const roundItem =
+    ctx.round > 0
+      ? `<li class="init-round-item" aria-label="Round ${ctx.round}">Round ${ctx.round}</li>`
+      : `<li class="init-round-item" aria-label="Deploy">Deploy</li>`;
+  initList.innerHTML =
+    roundItem +
+    order
+      .map((id) => {
+        const c = byId.get(id);
+        if (!c) return "";
+        const flags = [];
+        if (ctx.activeActorId === id) flags.push("active");
+        else if (acted.has(id)) flags.push("acted");
+        else if (ctx.nextActorId === id) flags.push("next");
+        if (ctx.justActedId === id) flags.push("just-acted");
+        if (c.downed) flags.push("downed");
+        const mark = ctx.activeActorId === id
           ? "▸"
-          : ctx.nextActorId === id
-            ? "·"
-            : "";
-      return `<li class="init-item ${flags.join(" ")}" data-id="${escapeHtml(id)}">
+          : acted.has(id)
+            ? "✓"
+            : ctx.nextActorId === id
+              ? "·"
+              : "";
+        return `<li class="init-item ${flags.join(" ")}" data-id="${escapeHtml(id)}">
         <span class="init-mark">${mark}</span>
         <span class="init-char ${c.side}">${escapeHtml(c.tokenChar)}</span>
         <span class="init-name">${escapeHtml(c.id)}</span>
         <span class="init-hp">${c.hp}/${c.maxHp}</span>
       </li>`;
-    })
-    .join("");
+      })
+      .join("");
 
   const sorted = [...ctx.combatants].sort((a, b) => {
     if (a.side !== b.side) return a.side === "party" ? -1 : 1;
@@ -1117,6 +1601,20 @@ async function submitCombatChoice(key) {
   }
 }
 
+function renderEnemyActionList(summary) {
+  if (!summary?.actions?.length) {
+    return `<p class="meta enemy-action-empty">No actions recorded.</p>`;
+  }
+  return `<ol class="enemy-action-list">${summary.actions
+    .map(
+      (a) =>
+        `<li><span class="enemy-action-slot">${a.slot}</span><span class="enemy-action-text">${escapeHtml(
+          a.text,
+        )}</span></li>`,
+    )
+    .join("")}</ol>`;
+}
+
 function renderActionPanel(ctx) {
   const panel = els.actionPanel;
   const list = els.actionPanelList;
@@ -1124,20 +1622,49 @@ function renderActionPanel(ctx) {
   if (!panel || !list) return;
   const theater = ctx?.theater;
   const awaiting = !!theater?.awaitingPlayer && (theater.choices || []).length > 0;
+  const summary = ctx?.lastTurnSummary;
+  const enemyJustActed =
+    summary?.side === "enemy" &&
+    ctx.justActedId === summary.actorId &&
+    (ctx.waitingForAdvance || ctx.pauseKind === "turn");
+  const activeEnemy =
+    ctx.activeActorId &&
+    combatantById(ctx, ctx.activeActorId)?.side === "enemy";
   const show =
     !!ctx &&
     (ctx.phase === "active" || ctx.phase === "waiting" || ctx.phase === "deploy") &&
-    (awaiting || !!ctx.activeActorId);
+    (awaiting || !!ctx.activeActorId || enemyJustActed);
   panel.hidden = !show;
   if (!show) {
     list.innerHTML = "";
     return;
   }
   const actor = ctx.activeActorId ? combatantById(ctx, ctx.activeActorId) : null;
-  if (awaiting) {
+
+  if (enemyJustActed) {
     if (hint) {
+      hint.textContent = ctx.enemyDisplayFrozen
+        ? `${summary.actorName} (${summary.actorId}) — enemy turn (map shows party movement only; press Enter to apply enemy positions)`
+        : `${summary.actorName} (${summary.actorId}) — enemy turn`;
+    }
+    list.innerHTML = renderEnemyActionList(summary);
+    return;
+  }
+
+  if (activeEnemy) {
+    if (hint) hint.textContent = `${actor?.name || ctx.activeActorId} is acting…`;
+    list.innerHTML = `<p class="meta">Resolving enemy turn — actions will appear here.</p>`;
+    return;
+  }
+
+  if (awaiting) {
+    const actorCell =
+      theater?.actorCell ||
+      (actor?.x && actor?.y ? cellIdFromXY(actor.x, actor.y) : "");
+    if (hint) {
+      const held = actor.heldWeaponId ? ` · holding ${actor.heldWeaponId}` : "";
       hint.textContent = actor
-        ? `${actor.name} (${actor.id}) — pick an action`
+        ? `${actor.name} (${actor.id})${actorCell ? ` @ ${actorCell}` : ""}${held} — pick an action`
         : "Pick an action";
     }
     list.innerHTML = (theater.choices || [])
@@ -1178,7 +1705,7 @@ function renderActionPanel(ctx) {
   }
 }
 
-function renderRoundStage(ctx) {
+function renderRoundStage(ctx, terrainBoard) {
   if (!els.roundStage) return;
   if (ctx?.phase === "deploy") {
     els.roundStage.innerHTML =
@@ -1251,7 +1778,7 @@ function renderRoundStage(ctx) {
       ? `<section class="panel full"><h2>Last turn</h2><pre class="mono">${escapeHtml(ctx.recentLog)}</pre></section>`
       : "";
     parts.push(
-      `<article class="round-card current" id="turn-pause-live"><h2>Live — turn pause</h2><div class="round-grid"><section class="panel full"><h2>Map</h2>${battleMapHtml(ctx.board)}</section>${turnLog}<p class="meta full">Press <kbd>Enter</kbd> for the next combatant.</p></div></article>`,
+      `<article class="round-card current" id="turn-pause-live"><h2>Live — turn pause</h2><div class="round-grid"><section class="panel full"><h2>Map</h2>${battleMapHtml(mergeBoardTerrain(ctx.board, terrainBoard))}</section>${turnLog}<p class="meta full">Press <kbd>Enter</kbd> for the next combatant.</p></div></article>`,
     );
   } else if (waiting) {
     parts.push(
@@ -1447,6 +1974,9 @@ function renderContext(payload) {
         ctx.phase === "waiting" ||
         ctx.phase === "deploy")) ||
     false;
+  if (live && document.querySelector(".tab.active")?.dataset.tab === "setup") {
+    showTab("combat");
+  }
   setCombatFocus(!!live || !!(ctx && ctx.phase === "ended" && ctx.rounds?.length));
   updateChatCombatState(ctx, !!payload.runInFlight);
 
@@ -1497,11 +2027,14 @@ function renderContext(payload) {
     deploying,
     turnPause,
   });
-  const liveBoard = ctx.board?.width
-    ? ctx.board
-    : ctx.rounds?.length
-      ? ctx.rounds[ctx.rounds.length - 1].board
-      : null;
+  const liveBoard = mergeBoardTerrain(
+    ctx.board?.width
+      ? ctx.board
+      : ctx.rounds?.length
+        ? ctx.rounds[ctx.rounds.length - 1].board
+        : null,
+    payload.studio?.board,
+  );
   renderBattleMap(liveBoard, {
     editable: canDragTokens,
     theater: ctx.theater || null,
@@ -1509,7 +2042,7 @@ function renderContext(payload) {
   });
   renderInitRoster(ctx);
   renderActionPanel(ctx);
-  renderRoundStage(ctx);
+  renderRoundStage(ctx, payload.studio?.board);
   renderMessages(payload.chat);
   if (ctx.phase === "ended" && lastPhase !== "ended") {
     refreshRuns().catch(() => {});
@@ -1647,8 +2180,12 @@ async function refresh() {
   try {
     const data = await apiJson("/api/context");
     renderContext(data);
-  } catch {
-    els.meta.textContent = "Lost connection to companion server";
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    const stale = !!window.__lastCtx;
+    els.meta.textContent = stale
+      ? `Lost connection to companion server (${detail}) — refresh the page or restart npm run ui`
+      : `Lost connection to companion server (${detail}) — is npm run ui running?`;
   }
 }
 
@@ -1849,15 +2386,22 @@ els.buildBtn.addEventListener("click", async () => {
 els.runBtn.addEventListener("click", async () => {
   els.setupMsg.textContent = "Starting combat…";
   els.runBtn.disabled = true;
+  showTab("combat");
   try {
     const data = await apiJson("/api/studio/run", { method: "POST" });
     els.setupMsg.textContent = data.message || "Combat started — pausing each round";
     setCombatFocus(true);
-    showTab("combat");
     els.roundStage?.focus({ preventScroll: true });
     await refresh();
   } catch (err) {
-    els.setupMsg.textContent = err.message || String(err);
+    const msg = err.message || String(err);
+    els.setupMsg.textContent = msg;
+    if (/already in progress/i.test(msg)) {
+      showTab("combat");
+      await refresh().catch(() => {});
+    } else {
+      showTab("setup");
+    }
     els.runBtn.disabled = false;
   }
 });
@@ -2028,6 +2572,17 @@ els.clear.addEventListener("click", async () => {
   await fetch("/api/chat/clear", { method: "POST" });
   await refresh();
 });
+
+els.toggleChat?.addEventListener("click", () => {
+  setChatCollapsed(!els.shell?.classList.contains("chat-collapsed"));
+});
+
+els.expandChatTab?.addEventListener("click", () => {
+  setChatCollapsed(false);
+});
+
+NARROW_SCREEN_MQ.addEventListener("change", applyChatCollapsePreference);
+applyChatCollapsePreference();
 
 els.input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {

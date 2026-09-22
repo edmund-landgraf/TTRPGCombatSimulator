@@ -40,6 +40,13 @@ export function isRangedPrimary(actor: CombatantState): boolean {
   return ranged && !melee && !caster;
 }
 
+/** Dual-weapon flanker: melee + ranged — close for sneak attack or poke from range. */
+export function isDualWeaponFlanker(actor: CombatantState): boolean {
+  const hasMelee = actor.weapons.some((w) => w.kind === "melee");
+  const hasRanged = actor.weapons.some((w) => w.kind === "ranged");
+  return hasMelee && hasRanged && !isRangedPrimary(actor);
+}
+
 export function isRogueLike(actor: CombatantState): boolean {
   return actor.role.toLowerCase().includes("rogue");
 }

@@ -1,10 +1,14 @@
 import type { ActionHead, TacticsGroupId as SchemaGroupId } from "../memory/schemas.js";
+import { isDualWeaponFlanker } from "./flank.js";
 
 /** Minimal actor shape (avoids circular import with combatMemory). */
 type TacticsActor = {
   role: string;
   tacticsGroup?: SchemaGroupId;
   tacticsSecondary?: SchemaGroupId;
+  weapons?: { kind: string }[];
+  spells?: { kind: string }[];
+  aiProfile?: { weights: Partial<Record<ActionHead, number>> };
 };
 
 const ACTION_HEADS: ActionHead[] = [
@@ -13,9 +17,12 @@ const ACTION_HEADS: ActionHead[] = [
   "Cast_cantrip",
   "Cast_spell",
   "Heal_ally",
+  "Use_potion",
+  "Use_scroll",
   "Stride_close",
   "Stride_cover",
   "Step_away",
+  "Switch_weapon",
   "Delay",
   "End_turn",
 ];
@@ -115,7 +122,7 @@ export const TACTICS_GROUPS: Record<TacticsGroupId, TacticsGroupDef> = {
   flanker: {
     id: "flanker",
     label: "Flanker / sneak",
-    hint: "Stay back and shoot until a flank opens, then sneak attack.",
+    hint: "Ranged skirmisher: shoot from the back until a flank opens, then sneak attack.",
     weightMult: {
       Strike_melee: 1.2,
       Strike_ranged: 1.15,
@@ -224,6 +231,8 @@ export const TACTICS_GROUPS: Record<TacticsGroupId, TacticsGroupDef> = {
     hint: "Heal critical allies first; light mid-line support afterward.",
     weightMult: {
       Heal_ally: 1.55,
+      Use_potion: 1.45,
+      Use_scroll: 0.85,
       Cast_cantrip: 1.05,
       Cast_spell: 1.0,
       Strike_melee: 0.7,
@@ -348,7 +357,34 @@ export function tacticsGroupOf(actor: TacticsActor): TacticsGroupDef {
     actor.tacticsSecondary !== primaryId
       ? TACTICS_GROUPS[actor.tacticsSecondary]
       : undefined;
-  return mergeTacticsProfiles(primary, secondary);
+  const merged = mergeTacticsProfiles(primary, secondary);
+  if (merged.id === "flanker" && isDualWeaponFlanker(actor as Parameters<typeof isDualWeaponFlanker>[0])) {
+    return dualWeaponFlankerProfile(merged);
+  }
+  return merged;
+}
+
+/** Dual-weapon skirmisher: close for sneak attack or poke with ranged while waiting. */
+function dualWeaponFlankerProfile(group: TacticsGroupDef): TacticsGroupDef {
+  return {
+    ...group,
+    hint: "Close for sneak attack when you can; poke with ranged while waiting for a flank.",
+    weightMult: {
+      ...group.weightMult,
+      Strike_melee: 1.25,
+      Strike_ranged: 1.0,
+      Stride_close: 1.25,
+      Stride_cover: 0.45,
+      Step_away: 0.55,
+    },
+    flags: {
+      ...group.flags,
+      preferMelee: true,
+      preferRanged: false,
+      keepDistance: false,
+      seekFlank: true,
+    },
+  };
 }
 
 export function groupFlags(actor: TacticsActor): TacticsGroupDef["flags"] {

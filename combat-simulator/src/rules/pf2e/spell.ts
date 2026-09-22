@@ -9,7 +9,8 @@ import {
   remainingTerrainRounds,
   spellHasAoe,
 } from "../../map/aoe.js";
-import { chebyshev, hasCoverFromAttack, hasLineOfSight } from "../../map/grid.js";
+import { chebyshev, hasLineOfSight } from "../../map/grid.js";
+import { coverBonusFromAttack } from "./cover.js";
 import { rollDamage } from "./damage.js";
 import { applyHealing, applyIncomingDamage, isDead } from "./dying.js";
 import { exposeAffliction } from "./affliction.js";
@@ -39,10 +40,17 @@ export function canCastSpell(
   caster: CombatantState,
   target: CombatantState,
   spell: Spell,
+  options?: { ignoreSlots?: boolean; ignoreRankGate?: boolean },
 ): boolean {
   if (caster.actionsLeft < spell.actions) return false;
-  if (spell.rank > 0 && spell.rank > maxSpellRankForLevel(caster.level)) return false;
-  if (spellUsesLeft(caster, spell) <= 0) return false;
+  if (
+    !options?.ignoreRankGate &&
+    spell.rank > 0 &&
+    spell.rank > maxSpellRankForLevel(caster.level)
+  ) {
+    return false;
+  }
+  if (!options?.ignoreSlots && spellUsesLeft(caster, spell) <= 0) return false;
   const dist = chebyshev(caster.pos, target.pos);
   if (dist > spell.rangeCells) return false;
   if (spell.kind !== "heal" && !hasLineOfSight(mem.grid, caster.pos, target.pos)) return false;
@@ -72,7 +80,7 @@ export function estimateSpellScore(
   }
   if (spell.kind === "attack" && spell.attackBonus != null) {
     let ac = target.ac;
-    if (hasCoverFromAttack(mem.grid, caster.pos, target.pos)) ac += 2;
+    ac += coverBonusFromAttack(mem, caster, target, { ranged: true }).acBonus;
     const mod = spell.attackBonus + mapPenalty(caster.map, false);
     const need = ac - mod;
     let p =
@@ -97,8 +105,15 @@ export function resolveSpell(
   spell: Spell,
   rng: SeededRng,
   round: number,
+  options?: { consumeSpellSlot?: boolean },
 ): void {
-  if (!canCastSpell(mem, caster, target, spell)) {
+  const scroll = options?.consumeSpellSlot === false;
+  if (
+    !canCastSpell(mem, caster, target, spell, {
+      ignoreSlots: scroll,
+      ignoreRankGate: scroll,
+    })
+  ) {
     mem.events.push({
       t: "reject",
       round,
@@ -108,7 +123,7 @@ export function resolveSpell(
     return;
   }
 
-  if (spell.rank > 0 && spell.usesPerCombat != null) {
+  if (options?.consumeSpellSlot !== false && spell.rank > 0 && spell.usesPerCombat != null) {
     caster.spellUses.set(spell.id, (caster.spellUses.get(spell.id) ?? 0) + 1);
   }
 
@@ -202,7 +217,7 @@ export function resolveSpell(
 
   if (spell.kind === "attack") {
     let ac = target.ac;
-    if (hasCoverFromAttack(mem.grid, caster.pos, target.pos)) ac += 2;
+    ac += coverBonusFromAttack(mem, caster, target, { ranged: true }).acBonus;
     const mod = (spell.attackBonus ?? 0) + mapPenalty(caster.map, false);
     const flat = rollConcealedFlat(mem, caster, target, rng);
     if (flat.required && !flat.passed) {

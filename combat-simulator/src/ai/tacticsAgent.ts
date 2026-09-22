@@ -3,7 +3,9 @@ import { candidateKey } from "./scorer.js";
 import type { CombatantState, CombatMemory } from "../memory/combatMemory.js";
 import { living } from "../memory/combatMemory.js";
 import { chebyshev } from "../map/grid.js";
+import { bestMeleeReach } from "../rules/pf2e/threaten.js";
 import { estimatePHit } from "../rules/pf2e/strike.js";
+import { allyOnRangedAttackLine, coverBonusFromAttack } from "../rules/pf2e/cover.js";
 import { endsInMelee, flankApproachPos, isFlanking } from "./flank.js";
 import {
   alreadyHasCover,
@@ -70,7 +72,7 @@ function isOffense(c: Candidate): boolean {
 }
 
 function isHeal(c: Candidate): boolean {
-  return c.head === "Heal_ally";
+  return c.head === "Heal_ally" || c.head === "Use_potion";
 }
 
 function offenseAlts(alts: Candidate[]): Candidate[] {
@@ -87,9 +89,8 @@ function targetOf(c: Candidate): string | undefined {
 }
 
 function hasMeleeReach(actor: CombatantState, foe: CombatantState): boolean {
-  const melee = actor.weapons.find((w) => w.kind === "melee");
-  if (!melee) return false;
-  return chebyshev(actor.pos, foe.pos) <= (melee.reach ?? 1);
+  const reach = bestMeleeReach(actor);
+  return reach > 0 && chebyshev(actor.pos, foe.pos) <= reach;
 }
 
 function isMeleePrimary(actor: CombatantState): boolean {
@@ -111,6 +112,18 @@ function woundedFoe(mem: CombatMemory, actor: CombatantState): CombatantState | 
   return foesOf(mem, actor)
     .filter((f) => f.hp / f.maxHp <= 0.5 || f.hp <= 6)
     .sort((a, b) => a.hp - b.hp)[0];
+}
+
+function isRangedAttackChoice(c: Candidate): boolean {
+  if (c.head === "Strike_ranged") return true;
+  if (
+    (c.head === "Cast_cantrip" || c.head === "Cast_spell") &&
+    "spell" in c &&
+    c.spell.kind === "attack"
+  ) {
+    return true;
+  }
+  return false;
 }
 
 const SKILLS: TacticsSkill[] = [
@@ -141,6 +154,7 @@ const SKILLS: TacticsSkill[] = [
           c.head === "Step_away" ||
           c.head === "Stride_cover" ||
           c.head === "Heal_ally" ||
+          c.head === "Use_potion" ||
           (c.head === "Cast_cantrip" && "spell" in c && c.spell.tactic === "support"),
       );
       if (!defensive) return null;
@@ -486,7 +500,11 @@ const SKILLS: TacticsSkill[] = [
     id: "triage",
     title: "Triage the dying",
     check: (mem, actor, choice, ctx) => {
-      if (!groupFlags(actor).healAllies && !actor.spells.some((s) => s.kind === "heal")) {
+      if (
+        !groupFlags(actor).healAllies &&
+        !actor.spells.some((s) => s.kind === "heal") &&
+        !actor.items.some((i) => i.kind === "potion")
+      ) {
         return null;
       }
       const hurt = criticalAlly(mem, actor);
@@ -541,7 +559,7 @@ const SKILLS: TacticsSkill[] = [
       if (!isMeleePrimary(actor)) return null;
       const stride = ctx.alternatives.find((c) => c.head === "Stride_close");
       if (!stride) return null;
-      const inMelee = foesOf(mem, actor).some((f) => hasMeleeReach(actor, f));
+      const inMelee = foesOf(mem, actor).some((x) => hasMeleeReach(actor, x));
       if (inMelee) return null;
       if (choice.head === "End_turn" || choice.head === "Step_away") {
         return "melee fighter is out of reach — Stride closer before ending or stepping away";
@@ -581,7 +599,8 @@ const SKILLS: TacticsSkill[] = [
     id: "rogue_backline",
     title: "Flanker stays back unless flanking",
     check: (_mem, actor, choice, ctx) => {
-      if (!groupFlags(actor).seekFlank) return null;
+      const f = groupFlags(actor);
+      if (!f.seekFlank || !f.preferRanged) return null;
       if (choice.head !== "Stride_close") return null;
       if (!("to" in choice)) return null;
       const flank = flankApproachPos(_mem, actor);
@@ -671,6 +690,7 @@ const SKILLS: TacticsSkill[] = [
       const better = ctx.alternatives.some(
         (c) =>
           c.head === "Heal_ally" ||
+          c.head === "Use_potion" ||
           c.head === "Stride_cover" ||
           c.head === "Step_away" ||
           c.head === "Cast_cantrip" ||
@@ -706,6 +726,68 @@ const SKILLS: TacticsSkill[] = [
       // After one attack: only divert when cover is clearly better than a press.
       if (actor.map >= 1 && needCover) {
         return "EoT mitigation — Take Cover vs ranged LOS instead of another Strike";
+      }
+      return null;
+    },
+  },
+  {
+    id: "avoid_friendly_cover",
+    title: "Avoid shooting through allies",
+    check: (mem, actor, choice, ctx) => {
+      if (!isRangedAttackChoice(choice)) return null;
+      if (!("targetId" in choice) || !choice.targetId) return null;
+      const target = mem.combatants.get(choice.targetId);
+      if (!target) return null;
+      const cov = coverBonusFromAttack(mem, actor, target, { ranged: true });
+      const allyBlock = allyOnRangedAttackLine(mem, actor, target);
+      if (!allyBlock || cov.acBonus === 0) return null;
+      const clearer = ctx.alternatives.find((c) => {
+        if (!isRangedAttackChoice(c) || !("targetId" in c) || !c.targetId) return false;
+        const t2 = mem.combatants.get(c.targetId);
+        if (!t2) return false;
+        const c2 = coverBonusFromAttack(mem, actor, t2, { ranged: true });
+        if (allyOnRangedAttackLine(mem, actor, t2)) return false;
+        return c2.acBonus < cov.acBonus && c.score >= choice.score * 0.85;
+      });
+      if (clearer && "targetId" in clearer) {
+        return `ally ${allyBlock.id} on line (+${cov.acBonus} AC) — prefer shot at ${clearer.targetId}`;
+      }
+      const sidestep = ctx.alternatives.find(
+        (c) =>
+          (c.head === "Step_away" || c.head === "Stride_cover") &&
+          c.score >= 0.35 &&
+          cov.acBonus === 1,
+      );
+      if (sidestep && groupFlags(actor).preferRanged) {
+        return `ally ${allyBlock.id} grants lesser cover (+1 AC) — reposition for clear shot`;
+      }
+      return null;
+    },
+  },
+  {
+    id: "press_uncovered_target",
+    title: "Press uncovered ranged target",
+    check: (mem, actor, choice, ctx) => {
+      if (!groupFlags(actor).preferRanged) return null;
+      if (
+        choice.head !== "End_turn" &&
+        choice.head !== "Stride_cover" &&
+        choice.head !== "Step_away"
+      ) {
+        return null;
+      }
+      const clear = ctx.alternatives.find((c) => {
+        if (c.head !== "Strike_ranged" || !("targetId" in c) || !c.targetId) return false;
+        const t = mem.combatants.get(c.targetId);
+        if (!t) return false;
+        return (
+          coverBonusFromAttack(mem, actor, t, { ranged: true }).acBonus === 0 &&
+          !allyOnRangedAttackLine(mem, actor, t) &&
+          c.score >= 0.55
+        );
+      });
+      if (clear && "targetId" in clear) {
+        return `clear ranged line on ${clear.targetId} — don't idle`;
       }
       return null;
     },

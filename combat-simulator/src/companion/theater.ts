@@ -1,13 +1,18 @@
 import type { Candidate } from "../ai/scorer.js";
 import type { CombatantState, CombatMemory } from "../memory/combatMemory.js";
-import { occupiedKeys } from "../memory/combatMemory.js";
+import { living, occupiedKeys } from "../memory/combatMemory.js";
 import { cellId, type Position } from "../memory/schemas.js";
 import {
   chebyshev,
   hasCoverFromAttack,
   hasLineOfSight,
 } from "../map/grid.js";
+import { coverBonusFromAttack } from "../rules/pf2e/cover.js";
 import { findPath } from "../map/pathfind.js";
+import {
+  actorThreatenedCells,
+  threatenedByEnemies,
+} from "../rules/pf2e/threaten.js";
 import type { PlayerChoice } from "../play/choices.js";
 
 export type TheaterChoice = {
@@ -23,10 +28,24 @@ export type TheaterChoice = {
 export type TheaterSnapshot = {
   awaitingPlayer: boolean;
   choices: TheaterChoice[];
+  /** Active actor grid cell (matches combat memory, for UI cross-check). */
+  actorCell: string;
   reachableCells: string[];
+  /** Chebyshev cells within melee weapon reach (usually 1). */
+  meleeReachCells: string[];
+  /** Chebyshev cells within ranged weapon range (may include blocked LOS). */
+  rangedRangeCells: string[];
+  /** Cells this actor threatens (area of control; reach 2 for glaive/halberd). */
+  threatenedCells: string[];
+  /** Cells threatened by enemies with Reactive Strike (Stride may trigger). */
+  threatenedByCells: string[];
+  /** @deprecated Use meleeReachCells + rangedRangeCells — kept for older clients. */
   inRangeCells: string[];
   noLosCells: string[];
+  /** Target cells with standard cover (+2) vs this actor's ranged attacks. */
   coverFromActor: string[];
+  /** Target cells with lesser cover (+1) from creatures on the attack line. */
+  lesserCoverFromActor: string[];
 };
 
 /** Cells the actor can reach with one Stride (speed budget), excluding occupied. */
@@ -49,56 +68,86 @@ export function computeReachableCells(
   return out;
 }
 
-/** Best weapon/spell reach for map feedback (melee reach or ranged/spell range). */
-export function bestAttackRangeCells(actor: CombatantState): number {
-  let best = 1;
-  for (const w of actor.weapons) {
-    if (w.kind === "ranged") best = Math.max(best, w.rangeCells ?? 12);
-    else best = Math.max(best, w.reach ?? 1);
-  }
+function maxMeleeReach(actor: CombatantState): number {
+  const held = actor.weapons.find((w) => w.id === actor.heldWeaponId);
+  if (held?.kind === "melee") return held.reach ?? 1;
+  return 0;
+}
+
+function maxRangedRange(actor: CombatantState): number {
+  const held = actor.weapons.find((w) => w.id === actor.heldWeaponId);
+  let best = 0;
+  if (held?.kind === "ranged") best = held.rangeCells ?? 12;
   for (const s of actor.spells) {
     best = Math.max(best, s.rangeCells ?? 0);
   }
   return best;
 }
 
-/** Walkable cells within attack range of the actor (Chebyshev). */
-export function computeInRangeCells(
+function cellsWithinChebyshev(
   mem: CombatMemory,
   actor: CombatantState,
+  range: number,
 ): string[] {
-  const range = bestAttackRangeCells(actor);
+  if (range <= 0) return [];
   const out: string[] = [];
   for (const key of mem.grid.walkable.keys()) {
     const m = /^x(\d+)y(\d+)$/i.exec(key);
     if (!m) continue;
     const to: Position = { x: Number(m[1]), y: Number(m[2]) };
-    if (chebyshev(actor.pos, to) <= range && chebyshev(actor.pos, to) > 0) {
-      out.push(key);
-    }
+    const dist = chebyshev(actor.pos, to);
+    if (dist > 0 && dist <= range) out.push(key);
   }
   return out;
 }
 
-/** Walkable cells with no LOS from actor; cells that grant cover vs attacks from actor. */
+/** Walkable cells within melee reach of the actor. */
+export function computeMeleeReachCells(
+  mem: CombatMemory,
+  actor: CombatantState,
+): string[] {
+  return cellsWithinChebyshev(mem, actor, maxMeleeReach(actor));
+}
+
+/** Walkable cells within ranged / spell range (Chebyshev; LOS shown separately). */
+export function computeRangedRangeCells(
+  mem: CombatMemory,
+  actor: CombatantState,
+): string[] {
+  return cellsWithinChebyshev(mem, actor, maxRangedRange(actor));
+}
+
+/** Walkable cells with no LOS from actor; cover overlays for ranged targets. */
 export function computeLosCover(
   mem: CombatMemory,
   actor: CombatantState,
-): { noLosCells: string[]; coverFromActor: string[] } {
+): { noLosCells: string[]; coverFromActor: string[]; lesserCoverFromActor: string[] } {
   const noLosCells: string[] = [];
   const coverFromActor: string[] = [];
+  const lesserCoverFromActor: string[] = [];
+  const side = actor.side === "party" ? "enemy" : "party";
+  for (const foe of living(mem, side)) {
+    if (!hasLineOfSight(mem.grid, actor.pos, foe.pos)) {
+      noLosCells.push(cellId(foe.pos));
+      continue;
+    }
+    const bonus = coverBonusFromAttack(mem, actor, foe, { ranged: true }).acBonus;
+    const key = cellId(foe.pos);
+    if (bonus >= 2) coverFromActor.push(key);
+    else if (bonus === 1) lesserCoverFromActor.push(key);
+  }
   for (const key of mem.grid.walkable.keys()) {
     const m = /^x(\d+)y(\d+)$/i.exec(key);
     if (!m) continue;
     const to: Position = { x: Number(m[1]), y: Number(m[2]) };
     if (to.x === actor.pos.x && to.y === actor.pos.y) continue;
     if (!hasLineOfSight(mem.grid, actor.pos, to)) {
-      noLosCells.push(key);
+      if (!noLosCells.includes(key)) noLosCells.push(key);
     } else if (hasCoverFromAttack(mem.grid, actor.pos, to)) {
-      coverFromActor.push(key);
+      if (!coverFromActor.includes(key)) coverFromActor.push(key);
     }
   }
-  return { noLosCells, coverFromActor };
+  return { noLosCells, coverFromActor, lesserCoverFromActor };
 }
 
 export function choiceToTheater(c: PlayerChoice): TheaterChoice {
@@ -137,14 +186,25 @@ export function buildTheaterSnapshot(
     choices?: PlayerChoice[];
   },
 ): TheaterSnapshot {
-  const { noLosCells, coverFromActor } = computeLosCover(mem, actor);
+  const { noLosCells, coverFromActor, lesserCoverFromActor } = computeLosCover(mem, actor);
+  const meleeReachCells = computeMeleeReachCells(mem, actor);
+  const rangedRangeCells = computeRangedRangeCells(mem, actor);
+  const threatenedCells = actorThreatenedCells(mem, actor);
+  const threatenedByCells = threatenedByEnemies(mem, actor);
+  const inRangeCells = [...new Set([...meleeReachCells, ...rangedRangeCells])];
   return {
     awaitingPlayer: !!opts?.awaitingPlayer,
     choices: (opts?.choices ?? []).map(choiceToTheater),
+    actorCell: cellId(actor.pos),
     reachableCells: computeReachableCells(mem, actor),
-    inRangeCells: computeInRangeCells(mem, actor),
+    meleeReachCells,
+    rangedRangeCells,
+    threatenedCells,
+    threatenedByCells,
+    inRangeCells,
     noLosCells,
     coverFromActor,
+    lesserCoverFromActor,
   };
 }
 

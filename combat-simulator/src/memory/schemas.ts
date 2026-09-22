@@ -12,9 +12,12 @@ export const ActionHeadSchema = z.enum([
   "Cast_cantrip",
   "Cast_spell",
   "Heal_ally",
+  "Use_potion",
+  "Use_scroll",
   "Stride_close",
   "Stride_cover",
   "Step_away",
+  "Switch_weapon",
   "Delay",
   "End_turn",
 ]);
@@ -43,6 +46,17 @@ export const TacticsGroupIdSchema = z.enum([
   "healer",
 ]);
 export type TacticsGroupId = z.infer<typeof TacticsGroupIdSchema>;
+
+/** PF2e creature size (for cover when an intervening creature is much larger). */
+export const SizeCategorySchema = z.enum([
+  "tiny",
+  "small",
+  "medium",
+  "large",
+  "huge",
+  "gargantuan",
+]);
+export type SizeCategory = z.infer<typeof SizeCategorySchema>;
 
 export const WeaponSchema = z.object({
   id: z.string(),
@@ -201,6 +215,30 @@ export const SpellSchema = z.object({
 });
 export type Spell = z.infer<typeof SpellSchema>;
 
+/** Combat-usable consumable (potions, scrolls — not passive gear like armor). */
+export const ConsumableSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.enum(["potion", "scroll"]),
+  /** Interact / Activate action cost (typically 1). */
+  actions: z.number().int().min(1).max(3).default(1),
+  /** Starting quantity for this encounter. */
+  uses: z.number().int().positive().default(1),
+  /** Potion healing (ignored for scrolls). */
+  healDice: z.number().int().positive().optional(),
+  healDie: z.number().int().positive().optional(),
+  healBonus: z.number().default(0),
+  /** Who may be targeted: self, ally (potions), or foe (offensive scrolls). */
+  target: z.enum(["self", "ally", "foe"]).default("self"),
+  /** Chebyshev range in cells; 0 = touch self only. */
+  rangeCells: z.number().int().nonnegative().default(0),
+  /** Scroll: inline spell payload (preferred) or spellId referencing actor.spells[]. */
+  spell: SpellSchema.optional(),
+  spellId: z.string().optional(),
+  tactic: z.enum(["heal", "offense", "support", "control"]).optional(),
+});
+export type Consumable = z.infer<typeof ConsumableSchema>;
+
 /** Default duration for spell-created terrain when unspecified (PF2e Grease ≈ 1 min). */
 export const DEFAULT_TERRAIN_DURATION_ROUNDS = 10;
 
@@ -212,6 +250,8 @@ export const CombatantFixtureSchema = z.object({
   tokenChar: z.string().length(1),
   /** Creature/PC level for spell-rank gating (default 1). */
   level: z.number().int().default(1),
+  /** PF2e size category (intervening creature cover; default medium). */
+  sizeCategory: SizeCategorySchema.default("medium"),
   /** Class / creature id for packet composition (derived from role if omitted). */
   classId: z.string().optional(),
   /** Dedication / monster-family archetype tags. */
@@ -230,7 +270,11 @@ export const CombatantFixtureSchema = z.object({
   shieldHp: z.number().int().nonnegative().default(0),
   start: PositionSchema,
   weapons: z.array(WeaponSchema).min(1),
+  /** Weapon id held at combat start; defaults inferred from loadout / tactics. */
+  defaultWeaponId: z.string().optional(),
   spells: z.array(SpellSchema).default([]),
+  /** Potions, scrolls, and other turn-usable gear. */
+  items: z.array(ConsumableSchema).default([]),
   aiProfile: AiProfileSchema,
   /** Primary built-in tactics group (archer, frontliner, buff/debuff, …). */
   tacticsGroup: TacticsGroupIdSchema.optional(),

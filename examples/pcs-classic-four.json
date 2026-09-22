@@ -24,6 +24,19 @@
         "reach": 1
       }
     ],
+    "items": [
+      {
+        "id": "healing_potion",
+        "name": "Minor Healing Potion",
+        "kind": "potion",
+        "uses": 2,
+        "actions": 1,
+        "healDice": 1,
+        "healDie": 8,
+        "target": "self",
+        "tactic": "heal"
+      }
+    ],
     "aiProfile": {
       "weights": {
         "Strike_melee": 1.4,
@@ -119,7 +132,31 @@
         "usesPerCombat": 1,
         "tactic": "crowd_control",
         "applyCondition": "asleep",
-        "skipIfSaveBonusGte": 5
+        "skipIfSaveBonusGte": 5,
+        "blastRadius": 1
+      }
+    ],
+    "items": [
+      {
+        "id": "scroll_force_bolt",
+        "name": "Scroll of Force Bolt",
+        "kind": "scroll",
+        "uses": 1,
+        "actions": 1,
+        "target": "foe",
+        "tactic": "offense",
+        "spell": {
+          "id": "force_bolt",
+          "name": "Force Bolt",
+          "kind": "attack",
+          "rank": 1,
+          "actions": 2,
+          "attackBonus": 8,
+          "damageDice": 1,
+          "damageDie": 10,
+          "damageBonus": 0,
+          "rangeCells": 6
+        }
       }
     ],
     "aiProfile": {
@@ -154,6 +191,7 @@
       "x": 5,
       "y": 8
     },
+    "defaultWeaponId": "shortsword",
     "weapons": [
       {
         "id": "shortsword",
@@ -172,6 +210,19 @@
         "damageDie": 6,
         "damageBonus": 1,
         "rangeCells": 12
+      }
+    ],
+    "items": [
+      {
+        "id": "healing_potion",
+        "name": "Minor Healing Potion",
+        "kind": "potion",
+        "uses": 1,
+        "actions": 1,
+        "healDice": 1,
+        "healDie": 8,
+        "target": "self",
+        "tactic": "heal"
       }
     ],
     "aiProfile": {
@@ -238,6 +289,20 @@
         "healBonus": 8,
         "rangeCells": 6,
         "usesPerCombat": 3
+      }
+    ],
+    "items": [
+      {
+        "id": "healing_potion",
+        "name": "Minor Healing Potion",
+        "kind": "potion",
+        "uses": 2,
+        "actions": 1,
+        "healDice": 1,
+        "healDie": 8,
+        "target": "ally",
+        "rangeCells": 1,
+        "tactic": "heal"
       }
     ],
     "aiProfile": {

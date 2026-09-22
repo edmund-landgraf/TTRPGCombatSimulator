@@ -34,9 +34,38 @@ export function hasCover(grid: Grid, pos: Position): boolean {
   return isCoverTags(grid.walkable.get(cellId(pos))?.tags ?? []);
 }
 
+/** Bresenham cells strictly between from and to (excludes endpoints). */
+export function attackLineIntermediateCells(from: Position, to: Position): Position[] {
+  const out: Position[] = [];
+  let x0 = from.x;
+  let y0 = from.y;
+  const x1 = to.x;
+  const y1 = to.y;
+  const dx = Math.abs(x1 - x0);
+  const dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+
+  while (!(x0 === x1 && y0 === y1)) {
+    const e2 = 2 * err;
+    if (e2 > -dy) {
+      err -= dy;
+      x0 += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      y0 += sy;
+    }
+    if (x0 === x1 && y0 === y1) break;
+    out.push({ x: x0, y: y0 });
+  }
+  return out;
+}
+
 /**
- * PF2e standard cover (+2 circumstance to AC) for a ranged / spell attack:
- * defender on cover/barricade, or the attack line crosses a barricade (soft cover you can shoot over).
+ * PF2e standard cover (+2 circumstance to AC) for terrain-only checks without combatants.
+ * Prefer coverBonusFromAttack() when attacker/target combatants are known.
  */
 export function hasCoverFromAttack(
   grid: Grid,

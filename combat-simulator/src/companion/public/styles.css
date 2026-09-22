@@ -52,10 +52,9 @@ body {
   gap: 0.35rem;
   overflow-x: hidden;
   overflow-y: auto;
-  /* Do not shrink when the walkthrough opens — keep room to pick another run. */
-  flex: 0 0 auto;
-  max-height: min(40vh, 18rem);
-  min-height: 10rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
@@ -64,6 +63,7 @@ body {
 
 .run-list > li {
   margin: 0;
+  flex-shrink: 0;
 }
 
 .run-container {
@@ -381,6 +381,43 @@ body {
   padding: 0.75rem 0.85rem 0.85rem;
 }
 
+.chat-expand-tab {
+  display: none;
+  flex: 0 0 auto;
+  align-self: stretch;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  padding: 0.75rem 0.35rem;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.chat-expand-tab:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+@media (min-width: 901px) {
+  .shell.chat-collapsed .chat-dock {
+    display: none;
+  }
+
+  .shell.chat-collapsed .chat-expand-tab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
 @media (max-width: 900px) {
   .app {
     flex-direction: column;
@@ -392,6 +429,22 @@ body {
     max-height: 40vh;
     border-left: none;
     border-top: 1px solid var(--border);
+    transition: max-height 0.2s ease;
+  }
+
+  .shell.chat-collapsed .chat-dock {
+    max-height: none;
+  }
+
+  .shell.chat-collapsed .chat-dock .messages,
+  .shell.chat-collapsed .chat-dock .composer,
+  .shell.chat-collapsed .chat-dock #chatMeta {
+    display: none;
+  }
+
+  .shell.chat-collapsed .chat-dock .header-actions #clearChat,
+  .shell.chat-collapsed .chat-dock .header-actions #chatCombatPill {
+    display: none;
   }
 }
 
@@ -504,7 +557,101 @@ body {
   margin-left: -1.1rem;
 }
 
-.map-controls {
+.unit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.loadout-btn {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.loadout-btn:hover {
+  border-color: var(--accent);
+}
+
+.loadout-editor {
+  margin-top: 0.35rem;
+  padding: 0.55rem;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.loadout-editor[hidden] {
+  display: none;
+}
+
+.loadout-section {
+  margin-bottom: 0.65rem;
+}
+
+.loadout-section h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.loadout-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
+  gap: 0.3rem;
+  align-items: end;
+  margin-bottom: 0.35rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.loadout-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.loadout-row input,
+.loadout-row select {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.loadout-row .row-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.loadout-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.loadout-toolbar button {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.45rem;
+}
+
+.loadout-save {
+  margin-top: 0.35rem;
+}
+
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
@@ -589,6 +736,14 @@ button.secondary {
   gap: 0.75rem;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
+}
+
+/* Walkthrough open: cap list height so the log panel keeps room. */
+.view.logs.active:has(.history-panel:not([hidden])) .run-list {
+  flex: 0 0 auto;
+  max-height: min(36vh, 16rem);
+  min-height: 10rem;
 }
 
 .view.combat.active {
@@ -680,6 +835,59 @@ button.secondary {
 
 .init-item.next {
   background: rgba(200, 180, 80, 0.12);
+}
+
+.init-item.acted {
+  opacity: 0.55;
+}
+
+.init-item.acted .init-mark {
+  color: #8bc48b;
+}
+
+.init-item.just-acted:not(.active) {
+  outline: 1px dashed rgba(200, 160, 120, 0.45);
+}
+
+.init-round-item {
+  list-style: none;
+  margin: 0 0 0.35rem;
+  padding: 0.15rem 0.25rem;
+  font-size: 0.72rem;
+  font-family: var(--mono);
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.enemy-action-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.78rem;
+  font-family: var(--mono);
+}
+
+.enemy-action-list li {
+  display: grid;
+  grid-template-columns: 1.4rem 1fr;
+  gap: 0.35rem;
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.enemy-action-slot {
+  color: var(--accent);
+  font-weight: 700;
+  text-align: right;
+}
+
+.enemy-action-text {
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.enemy-action-empty {
+  margin: 0.25rem 0;
 }
 
 .init-item.downed {
@@ -1274,6 +1482,16 @@ button.secondary {
   z-index: 0;
 }
 
+.battle-cell .cell-marker.wall-h,
+.battle-cell .cell-marker.wall-v {
+  color: #8a96a8;
+  font-weight: 700;
+  font-size: calc(var(--cell) * 0.55);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.85;
+}
+
 .battle-cell.cell-blocking {
   background: #12151a;
   color: #3a4454;
@@ -1393,6 +1611,24 @@ button.secondary {
   box-shadow: inset 0 0 0 2px rgba(90, 180, 120, 0.55);
 }
 
+.battle-cell.cell-melee {
+  box-shadow: inset 0 0 0 2px rgba(220, 100, 90, 0.65);
+}
+
+/** Your threatened squares (polearm / Reactive Strike control). */
+.battle-cell.cell-control {
+  background-image: radial-gradient(
+    circle at center,
+    rgba(200, 80, 80, 0.12) 0%,
+    transparent 72%
+  );
+}
+
+/** Enemy Reactive Strike zones — Stride out of these may provoke. */
+.battle-cell.cell-aoo {
+  box-shadow: inset 0 0 0 1px rgba(240, 120, 60, 0.45);
+}
+
 .battle-cell.cell-range {
   background-image: radial-gradient(
     circle at center,
@@ -1408,6 +1644,10 @@ button.secondary {
 
 .battle-cell.cell-cover-cue {
   box-shadow: inset 0 0 0 2px rgba(180, 150, 70, 0.5);
+}
+
+.battle-cell.cell-lesser-cover {
+  box-shadow: inset 0 0 0 2px rgba(140, 170, 200, 0.45);
 }
 
 .battle-cell.cell-choice-hl {

@@ -179,6 +179,7 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
     const queue = [...mem.initiative];
     const acted = new Set<string>();
     let qi = 0;
+    if (opts.companion) opts.companion.setActedThisRound([]);
 
     const pushLines = (turnLines: string[]) => {
       for (const line of turnLines) {
@@ -196,6 +197,11 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
 
       const turnLines: string[] = [];
       if (opts.companion) {
+        if (c.side === "enemy" && opts.pauseEachTurn) {
+          opts.companion.beginEnemyTurnDisplay(mem);
+        } else if (c.side === "party") {
+          opts.companion.syncDisplayBoard();
+        }
         opts.companion.setTurnCursor({
           activeActorId: justActed,
           nextActorId: peekNextActor(mem, queue, qi, acted),
@@ -219,6 +225,11 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
       // Delay removes the actor without a normal turn — don't mark acted.
       if (!mem.delayed.has(justActed)) acted.add(justActed);
       if (opts.companion) {
+        opts.companion.setActedThisRound([...acted]);
+        opts.companion.setLastTurnSummaryFromLog(turnLines.join("\n"), mem);
+        if (c.side === "enemy" && !opts.pauseEachTurn) {
+          opts.companion.syncDisplayBoard();
+        }
         opts.companion.setTurnCursor({
           activeActorId: null,
           justActedId: justActed,
@@ -247,7 +258,13 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
         if (!inserted) break;
 
         const retTurn: string[] = [];
+        const retActor = mem.combatants.get(inserted);
         if (opts.companion) {
+          if (retActor?.side === "enemy" && opts.pauseEachTurn) {
+            opts.companion.beginEnemyTurnDisplay(mem);
+          } else if (retActor?.side === "party") {
+            opts.companion.syncDisplayBoard();
+          }
           opts.companion.setTurnCursor({
             activeActorId: inserted,
             nextActorId: peekNextActor(mem, queue, qi, acted),
@@ -270,6 +287,11 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
         if (!mem.delayed.has(inserted)) acted.add(inserted);
         justActed = inserted;
         if (opts.companion) {
+          opts.companion.setActedThisRound([...acted]);
+          opts.companion.setLastTurnSummaryFromLog(retTurn.join("\n"), mem);
+          if (retActor?.side === "enemy" && !opts.pauseEachTurn) {
+            opts.companion.syncDisplayBoard();
+          }
           opts.companion.setTurnCursor({
             activeActorId: null,
             justActedId: justActed,

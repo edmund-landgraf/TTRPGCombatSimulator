@@ -13,6 +13,14 @@ import {
   buildTheaterSnapshot,
   type TheaterSnapshot,
 } from "./theater.js";
+import {
+  buildDisplayBoard,
+  parseTurnSummary,
+  snapshotEnemyPositions,
+  type TurnSummary,
+} from "./turnSummary.js";
+
+export type { TurnSummary, TurnActionLine } from "./turnSummary.js";
 
 export type { TheaterSnapshot, TheaterChoice } from "./theater.js";
 
@@ -84,6 +92,8 @@ export type CombatantSnapshot = {
   vitalNote: string;
   conditions: string[];
   weapons: string[];
+  /** Currently wielded weapon id. */
+  heldWeaponId: string;
   spells: string[];
   /** Ranked spell remaining uses, e.g. "heal 1/2". */
   spellUsesLeft: string[];
@@ -128,6 +138,12 @@ export type CombatContext = {
   pauseKind?: "deploy" | "round" | "turn";
   /** Token drag allowed during deploy and between-round/turn pauses. */
   canMoveTokens?: boolean;
+  /** Initiative order with turns already spent this round. */
+  actedThisRound?: string[];
+  /** Parsed actions for the combatant who just finished (enemy turns → action list). */
+  lastTurnSummary?: TurnSummary | null;
+  /** Enemy tokens on the map are held at pre-turn positions until Enter. */
+  enemyDisplayFrozen?: boolean;
   rounds: RoundSnapshot[];
 };
 
@@ -184,6 +200,10 @@ export class CompanionSession {
   justActedId: string | null = null;
   nextActorId: string | null = null;
   theater: TheaterSnapshot | null = null;
+  actedThisRound: string[] = [];
+  lastTurnSummary: TurnSummary | null = null;
+  /** Pre-turn enemy positions while the action list is shown (party tokens stay live). */
+  private frozenEnemyPositions: Map<string, { x: number; y: number }> | null = null;
 
   private advanceWaiters: Array<{
     resolve: (result: "advanced" | "cancelled") => void;
@@ -224,6 +244,27 @@ export class CompanionSession {
     this.justActedId = null;
     this.nextActorId = null;
     this.theater = null;
+    this.actedThisRound = [];
+    this.lastTurnSummary = null;
+    this.frozenEnemyPositions = null;
+  }
+
+  setActedThisRound(ids: string[]): void {
+    this.actedThisRound = [...ids];
+  }
+
+  /** Hold enemy map tokens until the user advances (turn pause UX). */
+  beginEnemyTurnDisplay(mem: CombatMemory): void {
+    this.frozenEnemyPositions = snapshotEnemyPositions(mem);
+  }
+
+  /** Snap enemy tokens on the map to live positions. */
+  syncDisplayBoard(): void {
+    this.frozenEnemyPositions = null;
+  }
+
+  setLastTurnSummaryFromLog(actionLog: string, mem: CombatMemory): void {
+    this.lastTurnSummary = parseTurnSummary(actionLog, mem);
   }
 
   setTurnCursor(opts: {
@@ -313,8 +354,14 @@ export class CompanionSession {
   advance(): boolean {
     if (!this.waitingForAdvance) return false;
     this.waitingForAdvance = false;
+    this.syncDisplayBoard();
     this.resolveWaiters("advanced");
-    if (this.context) {
+    if (this.liveMemory) {
+      this.publishFromMemory(this.liveMemory, {
+        phase: "active",
+        pauseKind: undefined,
+      });
+    } else if (this.context) {
       this.context = {
         ...this.context,
         waitingForAdvance: false,
@@ -337,23 +384,15 @@ export class CompanionSession {
   ): Promise<"advanced" | "cancelled"> {
     this.waitingForAdvance = true;
     const pauseKind = opts?.pauseKind ?? (phase === "deploy" ? "deploy" : "round");
-    if (this.context) {
-      const mem = this.liveMemory;
+    if (this.liveMemory) {
+      this.publishFromMemory(this.liveMemory, { phase, pauseKind });
+    } else if (this.context) {
       this.context = {
         ...this.context,
         waitingForAdvance: true,
         pauseKind,
         phase,
         canMoveTokens: true,
-        // Show live positions / HP while paused (especially between turns).
-        board: mem ? buildBoard(mem) : this.context.board,
-        mapText: mem ? formatAsciiBoard(mem) : this.context.mapText,
-        statusText:
-          phase === "deploy"
-            ? "--- Deploy — drag tokens, then Start Round 1 ---"
-            : mem
-              ? formatStatusRoster(mem)
-              : this.context.statusText,
         updatedAt: new Date().toISOString(),
       };
     }
@@ -451,6 +490,7 @@ export class CompanionSession {
         vitalNote: vital.note,
         conditions: formatCombatantStatuses(c),
         weapons: c.weapons.map((w) => w.id),
+        heldWeaponId: c.heldWeaponId,
         spells: c.spells.map((s) => s.name),
         spellUsesLeft: c.spells
           .filter((s) => s.rank > 0 && s.usesPerCombat != null)
@@ -467,9 +507,9 @@ export class CompanionSession {
       (this.waitingForAdvance ? "waiting" : "active");
     const latest = this.rounds[this.rounds.length - 1];
     const canMoveTokens = phase === "deploy" || phase === "waiting";
-    // Sticky theater map always tracks live positions (turn pauses + mid-round resolves).
-    // Per-round cards keep their own snapshots via recordRound.
-    const board = buildBoard(mem);
+    // Party tokens track live positions; enemy tokens may stay at pre-turn spots during turn pause.
+    const liveBoard = buildBoard(mem);
+    const board = buildDisplayBoard(liveBoard, this.frozenEnemyPositions);
     const mapText = formatAsciiBoard(mem);
     const liveStatus = formatStatusRoster(mem);
     const liveSummary = formatRoundSummary(mem);
@@ -511,6 +551,9 @@ export class CompanionSession {
       waitingForAdvance: this.waitingForAdvance,
       pauseKind: this.waitingForAdvance ? pauseKind : undefined,
       canMoveTokens,
+      actedThisRound: [...this.actedThisRound],
+      lastTurnSummary: this.lastTurnSummary,
+      enemyDisplayFrozen: this.frozenEnemyPositions != null,
       rounds: [...this.rounds],
     };
   }
@@ -621,7 +664,7 @@ export function formatContextForLlm(
       return (
         `- ${c.id} ${c.name} [${c.side}] hp ${c.hp}/${c.maxHp}${vital} AC ${c.ac} @ ${c.pos}` +
         (c.conditions.length ? ` cond=${c.conditions.join(",")}` : "") +
-        ` weapons=${c.weapons.join("/") || "—"} spells=${c.spells.join("/") || "—"}` +
+        ` weapons=${c.weapons.join("/") || "—"} held=${c.heldWeaponId || "—"} spells=${c.spells.join("/") || "—"}` +
         uses +
         note
       );

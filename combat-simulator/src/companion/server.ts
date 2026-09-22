@@ -11,6 +11,7 @@ import {
   type MatrixProgress,
 } from "../analysis/challengeMatrix.js";
 import { OllamaProvider } from "../llm/ollama.js";
+import { buildGrid } from "../map/grid.js";
 import { runEncounter } from "../orch/loop.js";
 import { answerCompanionChat } from "./chat.js";
 import { listRunContainers, listRuns, loadRunDetail, registerFinishedRun } from "./runHistory.js";
@@ -22,11 +23,13 @@ import {
   buildEncounterFromStudio,
   createStudioState,
   generateAsciiSquareMap,
+  getCombatantLoadout,
   importCombatantsJson,
   moveStudioToken,
   paintStudioCell,
   setMapFromImageGrid,
   setStudioTacticsGroup,
+  updateCombatantLoadout,
   studioState,
   studioSummary,
   type PaintBrush,
@@ -326,9 +329,7 @@ async function handleStudioApi(
       return true;
     }
     try {
-      if (!studioState.encounter) {
-        studioState.encounter = buildEncounterFromStudio(studioState);
-      }
+      studioState.encounter = buildEncounterFromStudio(studioState);
       const fixture = studioState.encounter;
       companionSession.clearCombatForNewRun();
       runInFlight = true;
@@ -524,6 +525,17 @@ async function handleStudioApi(
         return true;
       }
       paintStudioCell(studioState, Number(body.x), Number(body.y), brush);
+      if (
+        companionSession.liveMemory &&
+        companionSession.context?.phase === "deploy" &&
+        studioState.encounter
+      ) {
+        companionSession.liveMemory.grid = buildGrid(studioState.encounter);
+        companionSession.publishFromMemory(companionSession.liveMemory, {
+          phase: "deploy",
+          pauseKind: "deploy",
+        });
+      }
       json(res, 200, { ok: true, ...studioSummary(studioState) });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -560,6 +572,39 @@ async function handleStudioApi(
       json(res, 200, { ok: true, ...studioSummary(studioState) });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      json(res, 400, { error: msg, ...studioSummary(studioState) });
+    }
+    return true;
+  }
+
+  const loadoutMatch = /^\/api\/studio\/combatant\/([^/]+)\/loadout$/.exec(pathname);
+  if (loadoutMatch && req.method === "GET") {
+    try {
+      const id = decodeURIComponent(loadoutMatch[1]!);
+      json(res, 200, getCombatantLoadout(studioState, id));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      json(res, 400, { error: msg });
+    }
+    return true;
+  }
+  if (loadoutMatch && req.method === "POST") {
+    try {
+      const id = decodeURIComponent(loadoutMatch[1]!);
+      const body = JSON.parse((await readBody(req)) || "{}") as {
+        weapons?: unknown;
+        spells?: unknown;
+        items?: unknown;
+      };
+      updateCombatantLoadout(studioState, id, {
+        weapons: body.weapons as never,
+        spells: body.spells as never,
+        items: body.items as never,
+      });
+      json(res, 200, { ok: true, loadout: getCombatantLoadout(studioState, id), ...studioSummary(studioState) });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      studioState.lastError = msg;
       json(res, 400, { error: msg, ...studioSummary(studioState) });
     }
     return true;
@@ -813,8 +858,20 @@ export async function startCompanionServer(opts?: {
   });
 
   await new Promise<void>((resolve, reject) => {
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        reject(
+          new Error(
+            `Port ${port} is already in use (companion server may already be running). ` +
+              `Stop the other process or run with --port ${port + 1}. ` +
+              `Windows: netstat -ano | findstr :${port} then taskkill /PID <pid> /F`,
+          ),
+        );
+        return;
+      }
+      reject(err);
+    });
     server.listen(port, "127.0.0.1", () => resolve());
-    server.on("error", reject);
   });
 
   const url = `http://127.0.0.1:${port}/`;

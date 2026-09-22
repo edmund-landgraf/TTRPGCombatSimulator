@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   AiProfileSchema,
   CombatantFixtureSchema,
+  ConsumableSchema,
   EncounterFixtureSchema,
   MapCellSchema,
   SpellSchema,
@@ -35,6 +36,7 @@ const ImportCombatantSchema = z.object({
   start: z.object({ x: z.number().int().positive(), y: z.number().int().positive() }).optional(),
   weapons: z.array(WeaponSchema).min(1),
   spells: z.array(SpellSchema).optional(),
+  items: z.array(ConsumableSchema).optional(),
   aiProfile: AiProfileSchema.optional(),
   tacticsGroup: TacticsGroupIdSchema.optional(),
   tacticsSecondary: TacticsGroupIdSchema.optional(),
@@ -65,6 +67,8 @@ const defaultAi = (side: "party" | "enemy"): z.infer<typeof AiProfileSchema> => 
     Cast_cantrip: 1.0,
     Cast_spell: 0.8,
     Heal_ally: side === "party" ? 1.5 : 0.1,
+    Use_potion: side === "party" ? 1.3 : 0.05,
+    Use_scroll: side === "party" ? 0.9 : 0.1,
     Stride_close: 1.0,
     Stride_cover: 0.5,
     Step_away: 0.4,
@@ -262,6 +266,7 @@ export function importCombatantsJson(
       // Placeholder; autoPlaceSides overwrites after import into studio.
       start: parsed.start ?? { x: 2, y: side === "party" ? map.height - 1 : 2 },
       spells: parsed.spells ?? [],
+      items: parsed.items ?? [],
       aiProfile: parsed.aiProfile ?? defaultAi(side),
       tacticsGroup: parsed.tacticsGroup ?? defaultTacticsGroupForRole(role),
       tacticsSecondary: parsed.tacticsSecondary,
@@ -269,6 +274,55 @@ export function importCombatantsJson(
     out.push(fixture);
   }
   return out;
+}
+
+const LoadoutPatchSchema = z.object({
+  weapons: z.array(WeaponSchema).min(1).optional(),
+  spells: z.array(SpellSchema).optional(),
+  items: z.array(ConsumableSchema).optional(),
+});
+
+function syncEncounterCombatant(state: StudioState, unit: CombatantFixture): void {
+  if (!state.encounter) return;
+  const ec = state.encounter.combatants.find((c) => c.id === unit.id);
+  if (!ec) return;
+  ec.weapons = unit.weapons;
+  ec.spells = unit.spells ?? [];
+  ec.items = unit.items ?? [];
+}
+
+/** Full turn-usable loadout for the equipment editor (weapons, spells, items). */
+export function getCombatantLoadout(state: StudioState, id: string) {
+  const unit =
+    state.pcs.find((c) => c.id === id) ?? state.enemies.find((c) => c.id === id);
+  if (!unit) throw new Error(`Unknown combatant ${id}`);
+  return {
+    id: unit.id,
+    name: unit.name,
+    side: unit.side,
+    weapons: unit.weapons,
+    spells: unit.spells ?? [],
+    items: unit.items ?? [],
+  };
+}
+
+/** Update weapons, prepared spells, and consumables for a studio combatant. */
+export function updateCombatantLoadout(
+  state: StudioState,
+  id: string,
+  patch: z.infer<typeof LoadoutPatchSchema>,
+): CombatantFixture {
+  const unit =
+    state.pcs.find((c) => c.id === id) ?? state.enemies.find((c) => c.id === id);
+  if (!unit) throw new Error(`Unknown combatant ${id}`);
+  const parsed = LoadoutPatchSchema.parse(patch);
+  if (parsed.weapons) unit.weapons = parsed.weapons;
+  if (parsed.spells) unit.spells = parsed.spells;
+  if (parsed.items) unit.items = parsed.items;
+  syncEncounterCombatant(state, unit);
+  state.encounter = null;
+  state.lastError = undefined;
+  return unit;
 }
 
 /** Assign primary / optional secondary tactics groups to a studio PC/enemy. */
@@ -557,6 +611,9 @@ export function studioSummary(state: StudioState) {
     tokenChar: c.tokenChar,
     side: c.side,
     role: c.role,
+    weaponCount: c.weapons.length,
+    spellCount: (c.spells ?? []).length,
+    itemCount: (c.items ?? []).length,
     tacticsGroup: c.tacticsGroup ?? defaultTacticsGroupForRole(c.role),
     tacticsSecondary: c.tacticsSecondary ?? null,
   });

@@ -27,6 +27,7 @@ import {
 import { resolveStride, resolveStep } from "../rules/pf2e/movement.js";
 import { formatAttackLine, resolveStrike } from "../rules/pf2e/strike.js";
 import { formatSpellLine, formatTerrainLine, resolveSpell } from "../rules/pf2e/spell.js";
+import { formatItemLine, resolveItem } from "../rules/pf2e/item.js";
 import type { SeededRng } from "../rules/pf2e/rng.js";
 import { wantDelay, applyDelay } from "../rules/pf2e/delay.js";
 import {
@@ -96,6 +97,31 @@ export function executeCandidate(
     return any;
   }
 
+  if (choice.head === "Use_potion" || choice.head === "Use_scroll") {
+    const target = mem.combatants.get(choice.targetId);
+    if (!target) return false;
+    const before = mem.events.length;
+    resolveItem(mem, actor, target, choice.item, rng, mem.round);
+    let any = false;
+    for (let i = before; i < mem.events.length; i++) {
+      const ev = mem.events[i]!;
+      if (ev.t === "item") {
+        log.push(formatItemLine(ev));
+        any = true;
+      } else if (ev.t === "spell") {
+        log.push(formatSpellLine(ev));
+        any = true;
+      } else if (ev.t === "terrain") {
+        log.push(formatTerrainLine(ev));
+        any = true;
+      } else if (ev.t === "reject") {
+        log.push(`  REJECT ${ev.reason}`);
+        return false;
+      }
+    }
+    return any;
+  }
+
   // PF2e allows multiple Strides per turn. Cap Step_away to one so skittish
   // combatants don't burn the turn stepping back and forth.
   if (choice.head === "Step_away" && movesThisTurn.steps >= 1) {
@@ -104,7 +130,7 @@ export function executeCandidate(
 
   if (choice.head === "Stride_close" || choice.head === "Stride_cover") {
     const before = mem.events.length;
-    const ok = resolveStride(mem, actor, choice.to, mem.round, rng);
+    const ok = resolveStride(mem, actor, choice.to, mem.round, rng, log);
     for (let i = before; i < mem.events.length; i++) {
       const ev = mem.events[i]!;
       if (ev.t === "hazard") {
@@ -135,6 +161,32 @@ export function executeCandidate(
       } else if (ev.t === "reject") log.push(`  REJECT ${ev.reason}`);
     }
     return ok;
+  }
+
+  if (choice.head === "Switch_weapon") {
+    const next = actor.weapons.find((w) => w.id === choice.weaponId);
+    if (!next || next.id === actor.heldWeaponId) {
+      mem.events.push({
+        t: "reject",
+        round: mem.round,
+        actor: actor.id,
+        reason: `Cannot switch to ${choice.weaponId}`,
+      });
+      log.push(`  REJECT Cannot switch to ${choice.weaponId}`);
+      return false;
+    }
+    const from = actor.heldWeaponId;
+    actor.heldWeaponId = next.id;
+    actor.actionsLeft -= 1;
+    mem.events.push({
+      t: "switch_weapon",
+      round: mem.round,
+      actor: actor.id,
+      from,
+      to: next.id,
+    });
+    log.push(`  Switch ${from} → ${next.id}`);
+    return true;
   }
 
   return false;

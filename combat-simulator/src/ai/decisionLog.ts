@@ -48,8 +48,14 @@ export function describeCandidate(c: Candidate): string {
   if (c.head === "Cast_cantrip" || c.head === "Cast_spell" || c.head === "Heal_ally") {
     return `${c.head} → ${c.targetId} (${c.spell.name})`;
   }
+  if (c.head === "Use_potion" || c.head === "Use_scroll") {
+    return `${c.head} → ${c.targetId} (${c.item.name})`;
+  }
   if (c.head === "Stride_close" || c.head === "Stride_cover" || c.head === "Step_away") {
     return `${c.head} → ${cellId(c.to)}`;
+  }
+  if (c.head === "Switch_weapon") {
+    return `Switch_weapon → ${c.weaponId}`;
   }
   return c.head;
 }

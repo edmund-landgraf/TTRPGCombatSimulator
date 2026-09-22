@@ -1,8 +1,9 @@
 import type { CombatantState, CombatMemory } from "../../memory/combatMemory.js";
 import type { Weapon } from "../../memory/schemas.js";
-import { chebyshev, hasCoverFromAttack, hasLineOfSight } from "../../map/grid.js";
+import { chebyshev, hasLineOfSight } from "../../map/grid.js";
 import { isFlanking } from "../../ai/flank.js";
 import { groupFlags } from "../../ai/tacticsGroups.js";
+import { coverBonusFromAttack } from "./cover.js";
 import { formatDamageRoll, formatDiceExpr, rollDamage } from "./damage.js";
 import { applyIncomingDamage } from "./dying.js";
 import { exposeAffliction } from "./affliction.js";
@@ -23,25 +24,33 @@ export function weaponLabel(weapon: Weapon): string {
   return weapon.id.replace(/_/g, " ");
 }
 
+/** Grid legality only — range/reach + LOS for ranged (matches resolveStrike gates). */
+export function canStrike(
+  mem: CombatMemory,
+  attacker: CombatantState,
+  target: CombatantState,
+  weapon: Weapon,
+): boolean {
+  const dist = chebyshev(attacker.pos, target.pos);
+  if (weapon.kind === "melee") return dist <= (weapon.reach ?? 1);
+  const range = weapon.rangeCells ?? 12;
+  if (dist > range) return false;
+  return hasLineOfSight(mem.grid, attacker.pos, target.pos);
+}
+
 export function estimatePHit(
   mem: CombatMemory,
   attacker: CombatantState,
   target: CombatantState,
   weapon: Weapon,
 ): number {
+  if (!canStrike(mem, attacker, target, weapon)) return 0;
   const dist = chebyshev(attacker.pos, target.pos);
-  if (weapon.kind === "melee" && dist > (weapon.reach ?? 1)) return 0;
-  if (weapon.kind === "ranged") {
-    const range = weapon.rangeCells ?? 12;
-    if (dist > range) return 0;
-    if (!hasLineOfSight(mem.grid, attacker.pos, target.pos)) return 0;
-  }
   let ac = target.ac;
-  if (
-    weapon.kind === "ranged" &&
-    hasCoverFromAttack(mem.grid, attacker.pos, target.pos)
-  ) {
-    ac += 2; // PF2e standard cover (incl. soft barricade)
+  if (weapon.kind === "ranged") {
+    ac += coverBonusFromAttack(mem, attacker, target, { ranged: true }).acBonus;
+  } else if (weapon.kind === "melee") {
+    ac += coverBonusFromAttack(mem, attacker, target, { ranged: false }).acBonus;
   }
   if (weapon.kind === "melee" && isFlanking(mem, attacker, target, weapon.reach ?? 1)) {
     ac -= 2; // off-guard from flanking
@@ -55,6 +64,12 @@ export function estimatePHit(
   return p;
 }
 
+export type ResolveStrikeOptions = {
+  /** Off-turn Reactive Strike — does not spend actionsLeft. */
+  reaction?: boolean;
+  skipActionCost?: boolean;
+};
+
 export function resolveStrike(
   mem: CombatMemory,
   attacker: CombatantState,
@@ -62,54 +77,62 @@ export function resolveStrike(
   weapon: Weapon,
   rng: SeededRng,
   round: number,
+  opts?: ResolveStrikeOptions,
 ): void {
   const dist = chebyshev(attacker.pos, target.pos);
-  if (weapon.kind === "melee" && dist > (weapon.reach ?? 1)) {
-    mem.events.push({
-      t: "reject",
-      round,
-      actor: attacker.id,
-      reason: `Strike out of melee reach (${dist})`,
-    });
-    return;
-  }
-  if (weapon.kind === "ranged") {
-    const range = weapon.rangeCells ?? 12;
-    if (dist > range) {
+  if (!canStrike(mem, attacker, target, weapon)) {
+    if (weapon.kind === "melee") {
       mem.events.push({
         t: "reject",
         round,
         actor: attacker.id,
-        reason: `Strike out of range (${dist}>${range})`,
+        reason: `Strike out of melee reach (${dist})`,
       });
-      return;
-    }
-    if (!hasLineOfSight(mem.grid, attacker.pos, target.pos)) {
+    } else if (dist > (weapon.rangeCells ?? 12)) {
+      mem.events.push({
+        t: "reject",
+        round,
+        actor: attacker.id,
+        reason: `Strike out of range (${dist}>${weapon.rangeCells ?? 12})`,
+      });
+    } else {
       mem.events.push({
         t: "reject",
         round,
         actor: attacker.id,
         reason: "Strike blocked (no LOS)",
       });
-      return;
     }
+    return;
+  }
+
+  if (weapon.id !== attacker.heldWeaponId) {
+    mem.events.push({
+      t: "reject",
+      round,
+      actor: attacker.id,
+      reason: `Strike with ${weapon.id} but holding ${attacker.heldWeaponId}`,
+    });
+    return;
   }
 
   let ac = target.ac;
-  if (
-    weapon.kind === "ranged" &&
-    hasCoverFromAttack(mem.grid, attacker.pos, target.pos)
-  ) {
-    ac += 2; // PF2e standard cover (incl. soft barricade)
-  }
+  const cover =
+    weapon.kind === "ranged"
+      ? coverBonusFromAttack(mem, attacker, target, { ranged: true })
+      : coverBonusFromAttack(mem, attacker, target, { ranged: false });
+  ac += cover.acBonus;
   const flanked =
     weapon.kind === "melee" && isFlanking(mem, attacker, target, weapon.reach ?? 1);
   if (flanked) ac -= 2;
 
   const mod = weapon.attackBonus + mapPenalty(attacker.map, !!weapon.agile);
   const flat = rollConcealedFlat(mem, attacker, target, rng);
+  const spendAction = !opts?.skipActionCost;
+  const isReaction = !!opts?.reaction;
+
   if (flat.required && !flat.passed) {
-    // Concealed miss: no attack roll; action + MAP still spent.
+    // Concealed miss: no attack roll; action + MAP still spent (unless reaction w/ skip).
     mem.events.push({
       t: "attack",
       round,
@@ -129,10 +152,12 @@ export function resolveStrike(
       dmg: 0,
       hpAfter: target.hp,
       map: attacker.map,
+      reaction: isReaction || undefined,
+      coverBonus: cover.acBonus > 0 ? cover.acBonus : undefined,
       concealedFlat: { d20: flat.d20, dc: flat.dc, passed: false },
     });
     attacker.map += 1;
-    attacker.actionsLeft -= 1;
+    if (spendAction) attacker.actionsLeft -= 1;
     return;
   }
 
@@ -184,13 +209,15 @@ export function resolveStrike(
     dmg,
     hpAfter: target.hp,
     map: attacker.map,
+    reaction: isReaction || undefined,
+    coverBonus: cover.acBonus > 0 ? cover.acBonus : undefined,
     concealedFlat: flat.required
       ? { d20: flat.d20, dc: flat.dc, passed: true }
       : undefined,
   });
 
   attacker.map += 1;
-  attacker.actionsLeft -= 1;
+  if (spendAction) attacker.actionsLeft -= 1;
 }
 
 export function formatAttackLine(
@@ -208,6 +235,7 @@ export function formatAttackLine(
       ? ` [concealed flat ${e.concealedFlat.d20} vs DC ${e.concealedFlat.dc}]`
       : "";
   let line = `  Strike ${e.target} with ${e.weaponName}: d20 ${e.d20}+${e.mod}=${e.total} vs AC ${e.ac} ${result}${fogNote}`;
+  if (e.coverBonus) line += ` [cover +${e.coverBonus}]`;
   if (e.hit) {
     const sub = e.diceRolls.reduce((a, b) => a + b, 0) + e.damageBonus;
     line +=

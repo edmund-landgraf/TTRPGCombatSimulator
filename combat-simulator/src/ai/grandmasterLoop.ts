@@ -9,9 +9,11 @@ import { living } from "../memory/combatMemory.js";
 import { cellId } from "../memory/schemas.js";
 import { chebyshev, hasCover } from "../map/grid.js";
 import { canCastSpell } from "../rules/pf2e/spell.js";
+import { coverBonusFromAttack } from "../rules/pf2e/cover.js";
 import type { Candidate } from "./scorer.js";
 import { candidateKey, rankCandidates } from "./scorer.js";
-import { flankApproachPos, isFlanking } from "./flank.js";
+import { flankApproachPos, isFlanking, isRangedPrimary } from "./flank.js";
+import { groupFlags } from "./tacticsGroups.js";
 import {
   alreadyHasCover,
   heavyStatusPenalty,
@@ -342,6 +344,24 @@ export function runGrandmasterLoop(
   // ─── Step 3: Tactical Target Selection ───
   const s3Findings: string[] = [];
   const s3Nodes: string[] = [];
+  if (target && (groupFlags(actor).preferRanged || isRangedPrimary(actor))) {
+    const byCover = foes
+      .slice()
+      .sort(
+        (a, b) =>
+          coverBonusFromAttack(mem, actor, a, { ranged: true }).acBonus -
+          coverBonusFromAttack(mem, actor, b, { ranged: true }).acBonus,
+      );
+    const clearest = byCover[0];
+    if (
+      clearest &&
+      coverBonusFromAttack(mem, actor, clearest, { ranged: true }).acBonus <
+        coverBonusFromAttack(mem, actor, target, { ranged: true }).acBonus
+    ) {
+      target = clearest;
+      s3Findings.push(`ranged clear line → prefer ${target.id} (lowest cover)`);
+    }
+  }
   if (target) {
     const profile = classifyTarget(target);
     targetArchetype = profile.archetype;
@@ -520,13 +540,14 @@ export function runGrandmasterLoop(
         };
       }
     }
-    // Rogue without flank path: prefer ranged poke if chosen flank packet
+    // Ranged rogue without flank path: prefer ranged poke if chosen flank packet
     if (
       buildProfile.rolePacket === "rogue" &&
       chosen.id.includes("flank") &&
       target &&
       !isFlanking(mem, actor, target) &&
-      !flankApproachPos(mem, actor)
+      !flankApproachPos(mem, actor) &&
+      (isRangedPrimary(actor) || groupFlags(actor).preferRanged)
     ) {
       a1 = { name: "Hold / cover", intent: "No flank path — stay back", head: "Stride_cover" };
       a2 = { name: "Strike ranged", intent: "Bow while waiting for flank", head: "Strike_ranged" };

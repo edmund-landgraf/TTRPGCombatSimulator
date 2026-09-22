@@ -129,7 +129,8 @@
           "usesPerCombat": 1,
           "tactic": "crowd_control",
           "applyCondition": "asleep",
-          "skipIfSaveBonusGte": 5
+          "skipIfSaveBonusGte": 5,
+          "blastRadius": 1
         }
       ],
       "aiProfile": {
@@ -162,6 +163,7 @@
       "speedCells": 6,
       "perceptionBonus": 5,
       "start": { "x": 5, "y": 8 },
+      "defaultWeaponId": "shortsword",
       "weapons": [
         {
           "id": "shortsword",

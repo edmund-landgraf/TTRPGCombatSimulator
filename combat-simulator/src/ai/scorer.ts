@@ -1,15 +1,25 @@
 import type { CombatantState, CombatMemory } from "../memory/combatMemory.js";
 import { living } from "../memory/combatMemory.js";
-import type { ActionHead, Position, Spell, Weapon } from "../memory/schemas.js";
+import type { ActionHead, Consumable, Position, Spell, Weapon } from "../memory/schemas.js";
 import { cellId } from "../memory/schemas.js";
-import { chebyshev, hasCover, hasCoverFromAttack } from "../map/grid.js";
+import { chebyshev, hasCover } from "../map/grid.js";
+import { coverBonusFromAttack, coverScoreMultiplier } from "../rules/pf2e/cover.js";
 import { isCoverTags } from "../memory/schemas.js";
 import { findApproachWithinBudget, findPath } from "../map/pathfind.js";
 import { occupiedKeys } from "../memory/combatMemory.js";
-import { estimatePHit } from "../rules/pf2e/strike.js";
+import { estimatePHit, canStrike } from "../rules/pf2e/strike.js";
+import { strideCrossesThreat } from "../rules/pf2e/threaten.js";
+import { heldWeapon, canSwitchTo } from "../rules/pf2e/heldWeapon.js";
 import { aoeCellsForSpell, combatantsInAoe, spellHasAoe } from "../map/aoe.js";
 import { canCastSpell, estimateSpellScore } from "../rules/pf2e/spell.js";
-import { endsInMelee, flankApproachPos, isFlanking } from "./flank.js";
+import { canUseItem, estimateItemScore } from "../rules/pf2e/item.js";
+import {
+  endsInMelee,
+  flankApproachPos,
+  isDualWeaponFlanker,
+  isFlanking,
+  isRogueLike,
+} from "./flank.js";
 import {
   alreadyHasCover,
   isBruteRole,
@@ -36,7 +46,14 @@ export type Candidate =
       targetId: string;
       spell: Spell;
     }
-  | { head: "Stride_close" | "Stride_cover" | "Step_away"; score: number; to: Position };
+  | {
+      head: "Use_potion" | "Use_scroll";
+      score: number;
+      targetId: string;
+      item: Consumable;
+    }
+  | { head: "Stride_close" | "Stride_cover" | "Step_away"; score: number; to: Position }
+  | { head: "Switch_weapon"; score: number; weaponId: string };
 
 function activeDeltas(mem: CombatMemory, combatantId: string): Record<string, number> {
   const out: Record<string, number> = {};
@@ -62,10 +79,6 @@ function nearestEnemy(mem: CombatMemory, actor: CombatantState): CombatantState 
     }
   }
   return best;
-}
-
-function pickWeapon(actor: CombatantState, kind: "melee" | "ranged"): Weapon | undefined {
-  return actor.weapons.find((w) => w.kind === kind);
 }
 
 /** Toward a foe: furthest cell within one Speed along a (possibly longer) path. */
@@ -155,10 +168,9 @@ export function rankCandidates(
   const foes = living(mem, actor.side === "party" ? "enemy" : "party");
   const allies = [...mem.combatants.values()].filter((c) => c.side === actor.side);
   const nearest = nearestEnemy(mem, actor);
-  const meleeWeapon = pickWeapon(actor, "melee");
-  const inMelee =
-    !!meleeWeapon &&
-    foes.some((f) => chebyshev(actor.pos, f.pos) <= (meleeWeapon.reach ?? 1));
+  const held = heldWeapon(actor);
+  // Spatial adjacency (not held-weapon reach): bow users next to foes are still "in melee".
+  const inMelee = foes.some((f) => chebyshev(actor.pos, f.pos) <= 1);
   const keepRange = flags.keepDistance || flags.preferRanged;
 
   // Spells first so casters prefer them over weapon Strikes
@@ -181,7 +193,11 @@ export function rankCandidates(
     for (const foe of foes) {
       if (!canCastSpell(mem, actor, foe, spell)) continue;
       let score = weight(head) * estimateSpellScore(mem, actor, foe, spell) * 2 + 0.4;
-      if (hasCoverFromAttack(mem.grid, actor.pos, foe.pos)) score *= 0.85;
+      if (spell.kind === "attack") {
+        score *= coverScoreMultiplier(
+          coverBonusFromAttack(mem, actor, foe, { ranged: true }).acBonus,
+        );
+      }
       if (foe.role.toLowerCase().includes("wizard") || foe.role.toLowerCase().includes("shaman")) {
         score += focusCaster;
       }
@@ -210,39 +226,100 @@ export function rankCandidates(
     }
   }
 
+  // Potions & scrolls — triage and emergency offense
+  for (const item of actor.items) {
+    const head: ActionHead = item.kind === "potion" ? "Use_potion" : "Use_scroll";
+    const targets =
+      item.target === "foe"
+        ? foes
+        : item.target === "ally"
+          ? allies
+          : [actor];
+    for (const tgt of targets) {
+      if (!canUseItem(mem, actor, tgt, item)) continue;
+      let score = weight(head) * estimateItemScore(mem, actor, tgt, item) * 2 + 0.25;
+      if (item.kind === "potion") {
+        const missing = tgt.maxHp - tgt.hp;
+        if (missing < 4) continue;
+        if (tgt.hp / tgt.maxHp < 0.4) score += flags.healAllies ? 3 : 2.2;
+        if (tgt.id === actor.id) score -= 0.2;
+        if (tgt.id === actor.id && persistentThreat(actor)) score += 4;
+        candidates.push({ head: "Use_potion", score, targetId: tgt.id, item });
+        continue;
+      }
+      const spell = item.spell ?? actor.spells.find((s) => s.id === item.spellId);
+      if (!spell) continue;
+      if (spell.kind === "attack") {
+        score *= coverScoreMultiplier(
+          coverBonusFromAttack(mem, actor, tgt, { ranged: true }).acBonus,
+        );
+      }
+      if (spell.rank === 0) score += 0.2;
+      const tag = item.tactic ?? spell.tactic;
+      if (flags.preferControl && (tag === "control" || tag === "crowd_control")) score += 1.2;
+      if (flags.preferBlast && tag === "offense") score += 0.6;
+      if (flags.preferControl && tag === "offense") score *= 0.8;
+      candidates.push({ head: "Use_scroll", score, targetId: tgt.id, item });
+    }
+  }
+
   for (const foe of foes) {
-    const melee = pickWeapon(actor, "melee");
-    if (melee) {
-      const pHit = estimatePHit(mem, actor, foe, melee);
-      if (pHit > 0) {
-        let score = weight("Strike_melee") * pHit * 2 + 0.5;
-        if (inMelee) score += flags.preferMelee ? 2.8 : 2.0;
-        if (isFlanking(mem, actor, foe, melee.reach ?? 1)) {
-          score += flags.seekFlank ? 2.2 : 0.8;
-        } else if (flags.seekFlank && inMelee) {
-          score *= 0.55;
+    if (!held) break;
+    if (!canStrike(mem, actor, foe, held)) continue;
+    const pHit = estimatePHit(mem, actor, foe, held);
+    if (pHit <= 0) continue;
+    if (held.kind === "melee") {
+      let score = weight("Strike_melee") * pHit * 2 + 0.5;
+      if (inMelee) score += flags.preferMelee ? 2.8 : 2.0;
+      if (isFlanking(mem, actor, foe, held.reach ?? 1)) {
+        score += flags.seekFlank ? 2.2 : 0.8;
+      } else if (flags.seekFlank && inMelee) {
+        score *= 0.55;
+      }
+      if (foe.role.toLowerCase().includes("wizard") || foe.role.toLowerCase().includes("shaman")) {
+        score += focusCaster;
+      }
+      if (actor.spells.some((s) => s.kind !== "heal") && !flags.preferMelee) score *= 0.35;
+      candidates.push({ head: "Strike_melee", score, targetId: foe.id, weapon: held });
+    } else {
+      let score = weight("Strike_ranged") * pHit * 2;
+      score *= coverScoreMultiplier(
+        coverBonusFromAttack(mem, actor, foe, { ranged: true }).acBonus,
+      );
+      if (inMelee) score -= flags.preferMelee ? 0.4 : 1.0;
+      if (flags.preferRanged && !inMelee) score += 0.55;
+      if (flags.preferBlast && actor.spells.some((s) => s.kind === "attack" || s.kind === "save")) {
+        score *= 0.45;
+      }
+      candidates.push({ head: "Strike_ranged", score, targetId: foe.id, weapon: held });
+    }
+  }
+
+  // Switch weapon: 1 action to change what is held.
+  for (const w of actor.weapons) {
+    if (!canSwitchTo(actor, w.id)) continue;
+    let score = weight("Switch_weapon") + 0.35;
+    // Boost when switch unlocks a legal strike the current weapon cannot make.
+    let unlocks = 0;
+    for (const foe of foes) {
+      const heldOk = held ? canStrike(mem, actor, foe, held) : false;
+      const altOk = canStrike(mem, actor, foe, w);
+      if (altOk && !heldOk) unlocks++;
+      else if (altOk && held && held.kind !== w.kind) {
+        // Prefer melee when adjacent with a bow, or ranged when out of melee with a sword.
+        const dist = chebyshev(actor.pos, foe.pos);
+        if (held.kind === "ranged" && w.kind === "melee" && dist <= (w.reach ?? 1)) {
+          unlocks += 0.8;
         }
-        if (foe.role.toLowerCase().includes("wizard") || foe.role.toLowerCase().includes("shaman")) {
-          score += focusCaster;
+        if (held.kind === "melee" && w.kind === "ranged" && dist > (held.reach ?? 1)) {
+          unlocks += 0.5;
         }
-        if (actor.spells.some((s) => s.kind !== "heal") && !flags.preferMelee) score *= 0.35;
-        candidates.push({ head: "Strike_melee", score, targetId: foe.id, weapon: melee });
       }
     }
-    const ranged = pickWeapon(actor, "ranged");
-    if (ranged) {
-      const pHit = estimatePHit(mem, actor, foe, ranged);
-      if (pHit > 0) {
-        let score = weight("Strike_ranged") * pHit * 2;
-        if (hasCoverFromAttack(mem.grid, actor.pos, foe.pos)) score *= 0.7;
-        if (inMelee) score -= flags.preferMelee ? 0.4 : 1.0;
-        if (flags.preferRanged && !inMelee) score += 0.55;
-        if (flags.preferBlast && actor.spells.some((s) => s.kind === "attack" || s.kind === "save")) {
-          score *= 0.45;
-        }
-        candidates.push({ head: "Strike_ranged", score, targetId: foe.id, weapon: ranged });
-      }
-    }
+    score += unlocks * 1.4;
+    if (flags.preferMelee && w.kind === "melee") score += 0.4;
+    if (flags.preferRanged && w.kind === "ranged") score += 0.4;
+    candidates.push({ head: "Switch_weapon", score, weaponId: w.id });
   }
 
   const canMoveTo = (p: Position) => {
@@ -285,12 +362,14 @@ export function rankCandidates(
         if (endsInMelee(mem, actor, closeTo)) score *= 0.08;
         else if (hasRangedOption) score *= 0.25;
       }
-      if (flags.seekFlank) score *= 0.12;
+      // Ranged flankers stay back; melee flankers close even before an ally pins a foe.
+      if (flags.seekFlank && (keepRange || flags.preferRanged)) score *= 0.12;
 
       const closePath = pathCells(mem, actor.pos, closeTo, actor.speedCells, actor.id);
       if (closePath) {
         const haz = hazardDamageAlongPath(mem.grid, closePath);
         if (haz > 0) score -= haz >= actor.hp ? 8 : 2.5;
+        if (strideCrossesThreat(mem, actor, closePath)) score -= 2.8;
       }
       candidates.push({ head: "Stride_close", score, to: closeTo });
     }
@@ -362,6 +441,29 @@ export function rankCandidates(
         });
       }
     }
+
+    // Rogues plan skirmish exit: always surface a retreat Step for the default 3rd action.
+    const rogueSkirmish =
+      isRogueLike(actor) || (isDualWeaponFlanker(actor) && flags.seekFlank);
+    if (rogueSkirmish) {
+      const away = awayPos(mem, actor, nearest);
+      if (away && canMoveTo(away)) {
+        const already = candidates.some(
+          (c) => c.head === "Step_away" && cellId(c.to) === cellId(away),
+        );
+        if (!already) {
+          let stepScore = weight("Step_away") + 1.4;
+          if (inMelee) stepScore += 1.6;
+          if (actor.actionsLeft === 1) stepScore += 2.2;
+          if (chebyshev(away, nearest.pos) > dist) stepScore += 0.8;
+          candidates.push({
+            head: "Step_away",
+            score: stepScore,
+            to: away,
+          });
+        }
+      }
+    }
   }
 
   // Round 1: casters / buff groups open with magic, not milling about.
@@ -389,8 +491,14 @@ export function candidateKey(c: Candidate): string {
   if (c.head === "Cast_cantrip" || c.head === "Cast_spell" || c.head === "Heal_ally") {
     return `${c.head}:${c.spell.id}:${c.targetId}`;
   }
+  if (c.head === "Use_potion" || c.head === "Use_scroll") {
+    return `${c.head}:${c.item.id}:${c.targetId}`;
+  }
   if (c.head === "Stride_close" || c.head === "Stride_cover" || c.head === "Step_away") {
     return `${c.head}:${cellId(c.to)}`;
+  }
+  if (c.head === "Switch_weapon") {
+    return `Switch_weapon:${c.weaponId}`;
   }
   return c.head;
 }

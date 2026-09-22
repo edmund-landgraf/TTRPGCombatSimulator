@@ -32,5 +32,20 @@ for (const id of ["FTR", "WIZ", "ROG", "CLR"]) {
     if (fire.length > 0) {
       throw new Error("L1 wizard must not offer Fireball (rank 3)");
     }
+    if (sleep.length !== 1) {
+      throw new Error(`Sleep should appear once as an area spell, got ${sleep.length}`);
+    }
+    if (grease.length !== 1) {
+      throw new Error(`Grease should appear once as an area spell, got ${grease.length}`);
+    }
+    if (sleep[0]!.label.includes(" at ")) {
+      throw new Error(`Sleep label must not name a single foe: ${sleep[0]!.label}`);
+    }
+  }
+  if (id === "ROG") {
+    const retreat = choices.find((c) => c.key === "3");
+    if (!retreat || !retreat.label.startsWith("Retreat")) {
+      throw new Error(`Rogue slot 3 must be Retreat, got ${retreat?.label ?? "none"}`);
+    }
   }
 }
