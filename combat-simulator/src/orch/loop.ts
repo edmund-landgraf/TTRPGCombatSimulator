@@ -34,6 +34,13 @@ export type SimOptions = {
   pauseEachRound?: boolean;
   /** When true with companion, pause after each PC/enemy turn until UI advances (Enter). */
   pauseEachTurn?: boolean;
+  /**
+   * Studio automation. `auto` skips turn/round Enter pauses and checks in every 10 rounds
+   * (or sooner if the UI requests stop). Read live from companion.automationMode when set.
+   */
+  combatAutomation?: "manual" | "auto";
+  /** Auto batch size before check-in. Default 10. */
+  autoCheckInEvery?: number;
 };
 
 export type SimResult = {
@@ -128,7 +135,15 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
   let winner: "party" | "enemy" | "draw" = "draw";
   let endReason = "";
 
-  const pauseUi = !!(opts.companion && (opts.pauseEachRound || opts.pauseEachTurn));
+  const isAuto = (): boolean =>
+    (opts.companion?.automationMode ?? opts.combatAutomation) === "auto";
+  const pauseTurns = (): boolean => !isAuto() && !!opts.pauseEachTurn;
+  const pauseRounds = (): boolean => !isAuto() && !!opts.pauseEachRound;
+  const pauseUi = !!(opts.companion && (pauseRounds() || pauseTurns()));
+  if (opts.companion) {
+    if (opts.autoCheckInEvery) opts.companion.autoCheckInEvery = opts.autoCheckInEvery;
+    if (isAuto()) opts.companion.autoBatchStartRound = 0;
+  }
 
   // Pre-round-1 deploy: rearrange tokens, then Enter starts Round 1.
   if (pauseUi && opts.companion) {
@@ -157,7 +172,7 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
   }
 
   const waitTurnPause = async (): Promise<boolean> => {
-    if (!opts.pauseEachTurn || !opts.companion || sideWiped(mem)) return true;
+    if (!pauseTurns() || !opts.companion || sideWiped(mem)) return true;
     const adv = await opts.companion.waitForAdvance("waiting", { pauseKind: "turn" });
     if (adv === "cancelled") {
       endReason = "cancelled";
@@ -172,8 +187,8 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
     snapshotHp(mem);
     out.push(`=== Round ${round} start ===`);
     if (opts.play) console.log(`\n=== Round ${round} start ===`);
-    const roundLines: string[] = [];
-    publish({ phase: "active" });
+    const roundLines: string[] = [`=== Round ${round} start ===`];
+    publish({ phase: "active", actionLog: roundLines.join("\n") });
 
     // Working queue so Delay returns can insert and act later this round.
     const queue = [...mem.initiative];
@@ -189,6 +204,11 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
       }
     };
 
+    const flushLiveLog = (turnLines: string[]) => {
+      pushLines(turnLines.splice(0, turnLines.length));
+      publish({ phase: "active", actionLog: roundLines.join("\n") });
+    };
+
     while (qi < queue.length) {
       let justActed = queue[qi++]!;
       const c = mem.combatants.get(justActed);
@@ -197,7 +217,7 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
 
       const turnLines: string[] = [];
       if (opts.companion) {
-        if (c.side === "enemy" && opts.pauseEachTurn) {
+        if (c.side === "enemy" && pauseTurns()) {
           opts.companion.beginEnemyTurnDisplay(mem);
         } else if (c.side === "party") {
           opts.companion.syncDisplayBoard();
@@ -210,7 +230,14 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
         publish({ phase: "active" });
       }
       try {
-        await runTurn(mem, justActed, rng, turnLines, opts.play ? opts.chooser : undefined);
+        await runTurn(
+          mem,
+          justActed,
+          rng,
+          turnLines,
+          !isAuto() && opts.play ? opts.chooser : undefined,
+          () => flushLiveLog(turnLines),
+        );
       } catch (err) {
         // UI chooser reject on clear/reset — stop the encounter cleanly.
         const msg = err instanceof Error ? err.message : String(err);
@@ -227,7 +254,7 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
       if (opts.companion) {
         opts.companion.setActedThisRound([...acted]);
         opts.companion.setLastTurnSummaryFromLog(turnLines.join("\n"), mem);
-        if (c.side === "enemy" && !opts.pauseEachTurn) {
+        if (c.side === "enemy" && !pauseTurns()) {
           opts.companion.syncDisplayBoard();
         }
         opts.companion.setTurnCursor({
@@ -260,7 +287,7 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
         const retTurn: string[] = [];
         const retActor = mem.combatants.get(inserted);
         if (opts.companion) {
-          if (retActor?.side === "enemy" && opts.pauseEachTurn) {
+          if (retActor?.side === "enemy" && pauseTurns()) {
             opts.companion.beginEnemyTurnDisplay(mem);
           } else if (retActor?.side === "party") {
             opts.companion.syncDisplayBoard();
@@ -273,7 +300,14 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
           publish({ phase: "active" });
         }
         try {
-          await runTurn(mem, inserted, rng, retTurn, opts.play ? opts.chooser : undefined);
+          await runTurn(
+            mem,
+            inserted,
+            rng,
+            retTurn,
+            !isAuto() && opts.play ? opts.chooser : undefined,
+            () => flushLiveLog(retTurn),
+          );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (/cancel|clear|reset/i.test(msg) && opts.companion) {
@@ -289,7 +323,7 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
         if (opts.companion) {
           opts.companion.setActedThisRound([...acted]);
           opts.companion.setLastTurnSummaryFromLog(retTurn.join("\n"), mem);
-          if (retActor?.side === "enemy" && !opts.pauseEachTurn) {
+          if (retActor?.side === "enemy" && !pauseTurns()) {
             opts.companion.syncDisplayBoard();
           }
           opts.companion.setTurnCursor({
@@ -357,13 +391,24 @@ export async function runEncounter(fixture: EncounterFixture, opts: SimOptions):
       break;
     }
 
-    // Pause for UI: Enter advances to the next round (not after the final round).
-    if (opts.pauseEachRound && opts.companion && round < maxRounds) {
-      const adv = await opts.companion.waitForAdvance("waiting", { pauseKind: "round" });
-      if (adv === "cancelled") {
-        endReason = "cancelled";
-        winner = "draw";
-        break;
+    // Auto: run until Stop or the 10-round check-in. Manual: Enter between rounds.
+    if (opts.companion && round < maxRounds) {
+      const autoCheckIn = isAuto() && opts.companion.shouldAutoCheckIn(round);
+      if (autoCheckIn) {
+        opts.companion.autoStopRequested = false;
+        const adv = await opts.companion.waitForAdvance("waiting", { pauseKind: "checkin" });
+        if (adv === "cancelled") {
+          endReason = "cancelled";
+          winner = "draw";
+          break;
+        }
+      } else if (pauseRounds()) {
+        const adv = await opts.companion.waitForAdvance("waiting", { pauseKind: "round" });
+        if (adv === "cancelled") {
+          endReason = "cancelled";
+          winner = "draw";
+          break;
+        }
       }
     }
   }

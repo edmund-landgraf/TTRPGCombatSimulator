@@ -309,7 +309,12 @@ export async function runTurn(
   rng: SeededRng,
   log: string[],
   chooser?: ActionChooser,
+  /** Called after each log batch so the companion UI can stream the action log. */
+  onLog?: () => void,
 ): Promise<void> {
+  const flush = () => {
+    onLog?.();
+  };
   const actor = mem.combatants.get(actorId);
   if (!actor || isDead(actor)) return;
 
@@ -324,6 +329,7 @@ export async function runTurn(
       const vital = describeVitalStatus(actor);
       log.push(`  (${vital.label} — cannot act)`);
     }
+    flush();
     if (isDead(actor) || actor.hp <= 0 || actor.downed) {
       mem.events.push({ t: "end_turn", round: mem.round, actor: actorId });
       return;
@@ -338,6 +344,7 @@ export async function runTurn(
     log.push("  (asleep — skips this turn, then wakes)");
     actor.conditions = actor.conditions.filter((c) => c.name !== "asleep");
     mem.events.push({ t: "end_turn", round: mem.round, actor: actorId });
+    flush();
     return;
   }
 
@@ -346,6 +353,7 @@ export async function runTurn(
   // PF2e Delay is a free action when your turn begins — before other actions.
   if (!usePlayer && wantDelay(mem, actor)) {
     applyDelay(mem, actor, log);
+    flush();
     return;
   }
 
@@ -361,6 +369,7 @@ export async function runTurn(
   mem.grandmasterPlans.push(gmPlan);
   mem.activeGrandmasterPlan = gmPlan;
   for (const line of formatGrandmasterPlan(gmPlan)) log.push(line);
+  flush();
 
   const visited = new Set<string>([cellId(actor.pos)]);
   const movesThisTurn = { strides: 0, steps: 0 };
@@ -383,6 +392,7 @@ export async function runTurn(
           log,
           actionSlot,
         );
+        flush();
         if (choice.head === "End_turn") break;
         if (choice.score < 0.15 && !choice.head.startsWith("Stride")) break;
       }
@@ -393,18 +403,23 @@ export async function runTurn(
       );
       if (budgetNode?.mappedHead === "Raise_Shield") {
         raiseShield(actor, log);
-        if (choice.head === "End_turn") break;
+        if (choice.head === "End_turn") {
+          flush();
+          break;
+        }
       }
 
       const cont = executeCandidate(mem, actor, choice, rng, log, visited, movesThisTurn);
       // Refresh live state after each committed action (MAP / space / HP).
       mem.activeCombatState = parseCombatState(mem, actor, { turnActive: true });
+      flush();
       if (!cont || choice.head === "End_turn") break;
     }
   } finally {
     applyEndOfTurnDecay(mem, actor, log, rng);
     mem.activeCombatState = parseCombatState(mem, actor, { turnActive: false });
     mem.activeGrandmasterPlan = undefined;
+    flush();
   }
 
   mem.events.push({ t: "end_turn", round: mem.round, actor: actorId });

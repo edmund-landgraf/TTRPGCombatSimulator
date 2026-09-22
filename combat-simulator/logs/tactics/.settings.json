@@ -1,5 +1,6 @@
 {
   "saveTacticsLogs": true,
   "pauseEachRound": true,
-  "pauseEachTurn": false
+  "pauseEachTurn": false,
+  "controlPartyTurns": true
 }

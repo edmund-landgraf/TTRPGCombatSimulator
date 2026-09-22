@@ -20,6 +20,7 @@ const els = {
   expandChatTab: $("expandChatTab"),
   clearCombatBtn: $("clearCombatBtn"),
   advanceRoundBtn: $("advanceRoundBtn"),
+  stopAutoBtn: $("stopAutoBtn"),
   battleMapWrap: $("battleMapWrap"),
   battleMap: $("battleMap"),
   battleLegend: $("battleLegend"),
@@ -94,6 +95,7 @@ function defaultSettings() {
     pauseEachRound: true,
     pauseEachTurn: false,
     controlPartyTurns: true,
+    combatAutomation: "manual",
   };
 }
 
@@ -113,6 +115,10 @@ function readLocalSettings() {
         typeof parsed.controlPartyTurns === "boolean"
           ? parsed.controlPartyTurns
           : true,
+      combatAutomation:
+        parsed.combatAutomation === "auto" || parsed.combatAutomation === "manual"
+          ? parsed.combatAutomation
+          : "manual",
     };
   } catch {
     return defaultSettings();
@@ -196,6 +202,10 @@ async function loadSettingsIntoModal() {
         typeof remote.controlPartyTurns === "boolean"
           ? remote.controlPartyTurns
           : settings.controlPartyTurns,
+      combatAutomation:
+        remote.combatAutomation === "auto" || remote.combatAutomation === "manual"
+          ? remote.combatAutomation
+          : settings.combatAutomation,
     };
     writeLocalSettings(settings);
   } catch {
@@ -205,10 +215,44 @@ async function loadSettingsIntoModal() {
   if (els.pauseEachRound) els.pauseEachRound.checked = !!settings.pauseEachRound;
   if (els.pauseEachTurn) els.pauseEachTurn.checked = !!settings.pauseEachTurn;
   if (els.controlPartyTurns) els.controlPartyTurns.checked = !!settings.controlPartyTurns;
+  setAutomationRadios(settings.combatAutomation);
+  syncAutomationToggle(settings.combatAutomation);
+}
+
+function setAutomationRadios(mode) {
+  const value = mode === "auto" ? "auto" : "manual";
+  for (const input of document.querySelectorAll('input[name="combatAutomation"]')) {
+    input.checked = input.value === value;
+  }
+}
+
+function readAutomationFromRadios() {
+  const checked = document.querySelector('input[name="combatAutomation"]:checked');
+  return checked?.value === "auto" ? "auto" : "manual";
+}
+
+function syncAutomationToggle(mode) {
+  const value = mode === "auto" ? "auto" : "manual";
+  for (const btn of document.querySelectorAll("[data-automation]")) {
+    btn.classList.toggle("active", btn.dataset.automation === value);
+  }
+}
+
+async function persistAutomation(mode) {
+  const settings = { ...readLocalSettings(), combatAutomation: mode === "auto" ? "auto" : "manual" };
+  writeLocalSettings(settings);
+  setAutomationRadios(settings.combatAutomation);
+  syncAutomationToggle(settings.combatAutomation);
+  return apiJson("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
 }
 
 function settingsSummary(settings) {
   const bits = [];
+  bits.push(settings.combatAutomation === "auto" ? "auto combat" : "manual combat");
   bits.push(settings.saveTacticsLogs ? "tactical logs on" : "tactical logs off");
   bits.push(settings.pauseEachRound ? "pause rounds" : "no round pause");
   bits.push(settings.pauseEachTurn ? "pause turns" : "no turn pause");
@@ -222,6 +266,7 @@ async function persistSettingsFromModal() {
     pauseEachRound: !!els.pauseEachRound?.checked,
     pauseEachTurn: !!els.pauseEachTurn?.checked,
     controlPartyTurns: !!els.controlPartyTurns?.checked,
+    combatAutomation: readAutomationFromRadios(),
   };
   writeLocalSettings(settings);
   const remote = await apiJson("/api/settings", {
@@ -232,6 +277,7 @@ async function persistSettingsFromModal() {
   if (els.settingsMsg) {
     els.settingsMsg.textContent = settingsSummary(remote);
   }
+  syncAutomationToggle(remote.combatAutomation || settings.combatAutomation);
   return remote;
 }
 
@@ -336,7 +382,23 @@ document.addEventListener("keydown", (ev) => {
   }
 });
 
-function renderMessages(chat) {
+function chatFingerprint(chat) {
+  if (!chat?.length) return "empty";
+  const last = chat[chat.length - 1];
+  return `${chat.length}|${last.role}|${last.content?.length ?? 0}|${String(last.content ?? "").slice(-120)}`;
+}
+
+function messagesPinnedToBottom() {
+  const el = els.messages;
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= 72;
+}
+
+function renderMessages(chat, { forceScroll = false } = {}) {
+  const fp = chatFingerprint(chat);
+  // Polling rebuilds context often; rewriting the list would yank scroll to the latest bubble.
+  if (els.messages.dataset.fp === fp) return;
+  const pin = forceScroll || messagesPinnedToBottom();
+  const savedTop = els.messages.scrollTop;
   els.messages.innerHTML = "";
   if (!chat?.length) {
     const hint = document.createElement("div");
@@ -344,6 +406,7 @@ function renderMessages(chat) {
     hint.textContent =
       "Ask anything about the current fight — distances, who is hurt, spell options, PF2e rules.";
     els.messages.appendChild(hint);
+    els.messages.dataset.fp = fp;
     return;
   }
   for (const m of chat) {
@@ -356,7 +419,9 @@ function renderMessages(chat) {
     div.appendChild(document.createTextNode(m.content));
     els.messages.appendChild(div);
   }
-  els.messages.scrollTop = els.messages.scrollHeight;
+  els.messages.dataset.fp = fp;
+  if (pin) els.messages.scrollTop = els.messages.scrollHeight;
+  else els.messages.scrollTop = savedTop;
 }
 
 function fillTacticsSelect(sel, groups, selectedId, { includeNone = false } = {}) {
@@ -1705,6 +1770,38 @@ function renderActionPanel(ctx) {
   }
 }
 
+function roundAdvanceHint(ctx) {
+  const waiting = !!ctx?.waitingForAdvance;
+  const turnPause = ctx?.pauseKind === "turn";
+  if (!waiting) return "";
+  if (turnPause) {
+    return `<p class="advance-hint">Press <kbd>Enter</kbd> for the next combatant.</p>`;
+  }
+  if (ctx.pauseKind === "checkin") {
+    return `<p class="advance-hint">Auto check-in — press <kbd>Enter</kbd> to continue, or Stop auto.</p>`;
+  }
+  return `<p class="advance-hint">Press <kbd>Enter</kbd> for Round ${ctx.round + 1}</p>`;
+}
+
+function roundLogHtml(log, heading = "Actions") {
+  return `<section class="panel full"><h2>${heading}</h2><pre class="mono">${escapeHtml(log || "—")}</pre></section>`;
+}
+
+function liveRoundCard(ctx, terrainBoard, titleSuffix) {
+  const mapPanel = ctx.board?.width
+    ? `<section class="panel"><h2>Map</h2>${battleMapHtml(mergeBoardTerrain(ctx.board, terrainBoard))}</section>`
+    : `<section class="panel"><h2>Map</h2><pre class="mono">${escapeHtml(ctx.mapText || "—")}</pre></section>`;
+  return `<article class="round-card current" id="round-live">
+      <h2>Round ${ctx.round}${titleSuffix}</h2>
+      ${roundAdvanceHint(ctx)}
+      <div class="round-grid">
+        <section class="panel"><h2>Status</h2><pre class="mono">${escapeHtml(ctx.statusText || "—")}</pre></section>
+        ${mapPanel}
+        ${roundLogHtml(ctx.recentLog, "Actions")}
+      </div>
+    </article>`;
+}
+
 function renderRoundStage(ctx, terrainBoard) {
   if (!els.roundStage) return;
   if (ctx?.phase === "deploy") {
@@ -1714,34 +1811,33 @@ function renderRoundStage(ctx, terrainBoard) {
     delete els.roundStage.dataset.fp;
     return;
   }
-  const rounds = ctx?.rounds?.length ? ctx.rounds : null;
+  const rounds = ctx?.rounds?.length ? ctx.rounds : [];
   const waiting = !!ctx?.waitingForAdvance;
   const turnPause = ctx?.pauseKind === "turn";
-  if (!rounds) {
-    const emptyFp = `empty|${waiting ? 1 : 0}|${ctx?.pauseKind || ""}|${ctx?.round || 0}|${boardFingerprint(ctx?.board)}|${(ctx?.recentLog || "").length}`;
-    if (els.roundStage.dataset.fp === emptyFp) return;
-    els.roundStage.dataset.fp = emptyFp;
-    if (waiting && turnPause) {
-      const log = ctx.recentLog
-        ? `<section class="panel full"><h2>Last turn</h2><pre class="mono">${escapeHtml(ctx.recentLog)}</pre></section>`
-        : "";
-      els.roundStage.innerHTML = `<article class="round-card current"><h2>Round ${ctx.round} — turn pause</h2><div class="round-grid">${log}<p class="meta full">Map above is live. Press <kbd>Enter</kbd> for the next combatant.</p></div></article>`;
-    } else {
-      els.roundStage.innerHTML =
-        '<p class="round-empty meta">Run combat from Setup — deploy tokens, then pause after rounds and/or turns (Settings). Press Enter to continue.</p>';
-    }
+  const ended = ctx?.phase === "ended";
+  const last = rounds[rounds.length - 1];
+  const liveRound = Number(ctx?.round || 0);
+  const snapCoversLive = !!(last && last.round === liveRound);
+  const showLive =
+    !!ctx &&
+    liveRound > 0 &&
+    !ended &&
+    (!snapCoversLive || (waiting && turnPause));
+
+  if (!rounds.length && !showLive) {
+    els.roundStage.innerHTML =
+      '<p class="round-empty meta">Run combat from Setup — Manual waits for Enter; Auto runs until Stop or a 10-round check-in.</p>';
     delete els.roundStage.dataset.roundCount;
+    delete els.roundStage.dataset.fp;
     return;
   }
 
-  const ended = ctx.phase === "ended";
-  const last = rounds[rounds.length - 1];
-  // Polling must not rewrite/scroll when nothing changed — that yanked the view back to the latest round.
   const fp = [
     rounds.length,
     waiting ? 1 : 0,
     turnPause ? 1 : 0,
     ended ? 1 : 0,
+    showLive ? 1 : 0,
     ctx.endReason || "",
     ctx.winner || "",
     last?.round ?? "",
@@ -1752,56 +1848,62 @@ function renderRoundStage(ctx, terrainBoard) {
     boardFingerprint(last?.board || ctx.board),
     boardFingerprint(ctx.board),
     (ctx.recentLog || "").length,
+    (ctx.statusText || "").length,
   ].join("|");
   if (els.roundStage.dataset.fp === fp) return;
 
   const parts = rounds.map((r, i) => {
-    const isCurrent = i === rounds.length - 1;
+    const isCurrent = !showLive && i === rounds.length - 1;
     const mapPanel = r.board?.width
       ? `<section class="panel"><h2>Map</h2>${battleMapHtml(r.board)}</section>`
       : `<section class="panel"><h2>Map</h2><pre class="mono">${escapeHtml(r.mapText || "—")}</pre></section>`;
     const waitLabel =
-      isCurrent && waiting ? (turnPause ? " — turn pause" : " — waiting") : "";
+      isCurrent && waiting
+        ? turnPause
+          ? " — turn pause"
+          : ctx.pauseKind === "checkin"
+            ? " — auto check-in"
+            : " — waiting"
+        : "";
+    const hint = isCurrent ? roundAdvanceHint(ctx) : "";
     return `<article class="round-card ${isCurrent ? "current" : "past"}" data-round="${r.round}" id="round-${r.round}">
       <h2>Round ${r.round}${waitLabel}${isCurrent && ended ? " — final" : ""}</h2>
+      ${hint}
       <div class="round-grid">
         <section class="panel"><h2>Status</h2><pre class="mono">${escapeHtml(r.statusText || "—")}</pre></section>
         ${mapPanel}
-        <section class="panel full"><h2>Actions</h2><pre class="mono">${escapeHtml(r.actionLog || "—")}</pre></section>
+        ${roundLogHtml(r.actionLog)}
         <section class="panel full"><h2>Summary</h2><pre class="mono">${escapeHtml(r.summaryText || "—")}</pre></section>
       </div>
     </article>`;
   });
 
-  if (waiting && turnPause) {
-    const turnLog = ctx.recentLog
-      ? `<section class="panel full"><h2>Last turn</h2><pre class="mono">${escapeHtml(ctx.recentLog)}</pre></section>`
-      : "";
-    parts.push(
-      `<article class="round-card current" id="turn-pause-live"><h2>Live — turn pause</h2><div class="round-grid"><section class="panel full"><h2>Map</h2>${battleMapHtml(mergeBoardTerrain(ctx.board, terrainBoard))}</section>${turnLog}<p class="meta full">Press <kbd>Enter</kbd> for the next combatant.</p></div></article>`,
-    );
-  } else if (waiting) {
-    parts.push(
-      `<div class="advance-banner" id="advanceBanner">Press <kbd>Enter</kbd> for Round ${ctx.round + 1}</div>`,
-    );
+  if (showLive) {
+    const suffix = waiting && turnPause ? " — turn pause" : " — live";
+    parts.push(liveRoundCard(ctx, terrainBoard, suffix));
   } else if (ended) {
     parts.push(
-      `<div class="advance-banner">Combat ended — ${escapeHtml(ctx.endReason || "done")} (${escapeHtml(
+      `<p class="advance-hint">Combat ended — ${escapeHtml(ctx.endReason || "done")} (${escapeHtml(
         ctx.winner || "—",
-      )})</div>`,
+      )})</p>`,
     );
   }
 
   const prevLen = Number(els.roundStage.dataset.roundCount || 0);
   const scrollTop = els.roundStage.scrollTop;
-  // Only jump to the latest card when a new round arrives (or first paint).
-  const shouldScrollToCurrent = prevLen === 0 || rounds.length > prevLen;
+  const liveLogGrew =
+    Number(els.roundStage.dataset.logLen || 0) < (ctx.recentLog || "").length;
+  const shouldScrollToCurrent =
+    prevLen === 0 || rounds.length > prevLen || (showLive && liveLogGrew);
   els.roundStage.innerHTML = parts.join("");
   els.roundStage.dataset.roundCount = String(rounds.length);
+  els.roundStage.dataset.logLen = String((ctx.recentLog || "").length);
   els.roundStage.dataset.fp = fp;
   if (shouldScrollToCurrent) {
     const current = els.roundStage.querySelector(".round-card.current");
-    current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const logPre = current?.querySelector(".panel.full pre.mono");
+    if (logPre) logPre.scrollIntoView({ behavior: "smooth", block: "end" });
+    else current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } else {
     els.roundStage.scrollTop = scrollTop;
   }
@@ -1838,14 +1940,19 @@ function updateChatCombatState(ctx, runInFlight) {
   }
   if (ctx.waitingForAdvance || ctx.phase === "waiting") {
     const turnPause = ctx.pauseKind === "turn";
+    const checkin = ctx.pauseKind === "checkin";
     els.chatCombatPill.textContent = turnPause
       ? `turn pause · end R${ctx.round}`
-      : `paused · end of round ${ctx.round}`;
+      : checkin
+        ? `auto check-in · R${ctx.round}`
+        : `paused · end of round ${ctx.round}`;
     els.chatCombatPill.className = "pill";
     if (els.chatMeta) {
       els.chatMeta.textContent = turnPause
         ? `You are paused after a turn in Round ${ctx.round}. Map is live — Enter for the next combatant.`
-        : `You are at the end of Round ${ctx.round}. Chat context matches this pause — Enter starts Round ${ctx.round + 1}.`;
+        : checkin
+          ? `Auto checked in after Round ${ctx.round}. Enter continues auto for up to 10 more rounds.`
+          : `You are at the end of Round ${ctx.round}. Chat context matches this pause — Enter starts Round ${ctx.round + 1}.`;
     }
     return;
   }
@@ -1980,10 +2087,31 @@ function renderContext(payload) {
   setCombatFocus(!!live || !!(ctx && ctx.phase === "ended" && ctx.rounds?.length));
   updateChatCombatState(ctx, !!payload.runInFlight);
 
+  const automation =
+    payload.settings?.combatAutomation === "auto" || ctx?.automationMode === "auto"
+      ? "auto"
+      : "manual";
+  if (payload.settings) {
+    writeLocalSettings({
+      ...readLocalSettings(),
+      ...payload.settings,
+    });
+  }
+  syncAutomationToggle(automation);
+
+  const autoRunning =
+    automation === "auto" && !!payload.runInFlight && !ctx?.waitingForAdvance && ctx?.phase !== "ended";
+  if (els.stopAutoBtn) {
+    els.stopAutoBtn.hidden = !autoRunning;
+    els.stopAutoBtn.disabled = !autoRunning;
+  }
+
   if (!ctx) {
     els.title.textContent = "Combat";
     els.meta.textContent = payload.runInFlight
-      ? "Combat running — resolving round…"
+      ? automation === "auto"
+        ? "Auto combat running — will check in after 10 rounds or Stop"
+        : "Combat running — resolving round…"
       : "Cleared — ready for a new run (Setup → Run combat)";
     els.phase.textContent = payload.runInFlight ? "running" : "idle";
     els.phase.className = "pill muted";
@@ -2003,22 +2131,31 @@ function renderContext(payload) {
 
   els.title.textContent = ctx.encounterName;
   const turnPause = ctx.pauseKind === "turn";
+  const checkin = ctx.pauseKind === "checkin";
   els.meta.textContent = deploying
     ? `${ctx.encounterId} · seed ${ctx.seed} · deploy — drag tokens, then Start Round 1`
     : canDragTokens
       ? turnPause
         ? `${ctx.encounterId} · seed ${ctx.seed} · round ${ctx.round} — turn done, map updated; Enter for next`
-        : `${ctx.encounterId} · seed ${ctx.seed} · round ${ctx.round} — drag tokens, then Enter`
-      : `${ctx.encounterId} · seed ${ctx.seed} · round ${ctx.round} · updated ${new Date(
-          ctx.updatedAt,
-        ).toLocaleTimeString()}`;
+        : checkin
+          ? `${ctx.encounterId} · seed ${ctx.seed} · round ${ctx.round} — auto check-in; Enter to continue`
+          : `${ctx.encounterId} · seed ${ctx.seed} · round ${ctx.round} — drag tokens, then Enter`
+      : `${ctx.encounterId} · seed ${ctx.seed} · round ${ctx.round} · ${
+          automation === "auto" && payload.runInFlight && !ctx.waitingForAdvance
+            ? "auto running"
+            : `updated ${new Date(ctx.updatedAt).toLocaleTimeString()}`
+        }`;
   els.phase.textContent = deploying
     ? "deploy"
     : ctx.waitingForAdvance
       ? turnPause
         ? "turn pause"
-        : "waiting"
-      : ctx.phase;
+        : checkin
+          ? "auto check-in"
+          : "waiting"
+      : automation === "auto" && payload.runInFlight
+        ? "auto"
+        : ctx.phase;
   els.phase.className = ctx.phase === "ended" ? "pill ended" : "pill";
   if (els.status) els.status.textContent = ctx.statusText || "—";
   if (els.map) els.map.textContent = ctx.mapText || "—";
@@ -2026,6 +2163,7 @@ function renderContext(payload) {
   setAdvanceRoundVisible(!!ctx.waitingForAdvance, {
     deploying,
     turnPause,
+    checkin,
   });
   const liveBoard = mergeBoardTerrain(
     ctx.board?.width
@@ -2055,13 +2193,16 @@ function setAdvanceRoundVisible(show, opts = {}) {
   if (!els.advanceRoundBtn) return;
   const deploying = !!opts.deploying;
   const turnPause = !!opts.turnPause;
+  const checkin = !!opts.checkin;
   els.advanceRoundBtn.hidden = !show;
   els.advanceRoundBtn.disabled = !show;
   els.advanceRoundBtn.textContent = deploying
     ? "Start Round 1 (Enter)"
     : turnPause
       ? "Next turn (Enter)"
-      : "Next round (Enter)";
+      : checkin
+        ? "Continue auto (Enter)"
+        : "Next round (Enter)";
 }
 
 async function advanceRound() {
@@ -2389,7 +2530,7 @@ els.runBtn.addEventListener("click", async () => {
   showTab("combat");
   try {
     const data = await apiJson("/api/studio/run", { method: "POST" });
-    els.setupMsg.textContent = data.message || "Combat started — pausing each round";
+    els.setupMsg.textContent = data.message || "Combat started";
     setCombatFocus(true);
     els.roundStage?.focus({ preventScroll: true });
     await refresh();
@@ -2420,6 +2561,29 @@ els.clearCombatBtn?.addEventListener("click", async () => {
 });
 
 els.advanceRoundBtn?.addEventListener("click", () => advanceRound());
+
+els.stopAutoBtn?.addEventListener("click", async () => {
+  try {
+    await apiJson("/api/combat/stop-auto", { method: "POST" });
+    els.meta.textContent = "Stopping auto at the end of this round…";
+    if (els.stopAutoBtn) els.stopAutoBtn.disabled = true;
+  } catch (err) {
+    els.meta.textContent = err.message || String(err);
+  }
+});
+
+document.querySelectorAll("[data-automation]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const mode = btn.dataset.automation === "auto" ? "auto" : "manual";
+    if (readLocalSettings().combatAutomation === mode) return;
+    try {
+      await persistAutomation(mode);
+      await refresh();
+    } catch (err) {
+      els.meta.textContent = err.message || String(err);
+    }
+  });
+});
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
@@ -2555,7 +2719,7 @@ els.form.addEventListener("submit", async (e) => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Chat failed");
-    renderMessages(data.chat);
+    renderMessages(data.chat, { forceScroll: true });
   } catch (err) {
     const div = document.createElement("div");
     div.className = "bubble assistant";

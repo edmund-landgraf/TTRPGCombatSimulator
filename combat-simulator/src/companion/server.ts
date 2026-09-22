@@ -69,6 +69,8 @@ export type StudioSettings = {
   pauseEachTurn: boolean;
   /** When true, Studio waits for UI action picks on party turns (enemies stay AI). */
   controlPartyTurns: boolean;
+  /** manual = Enter pauses; auto = keep resolving until Stop or a 10-round check-in. */
+  combatAutomation: "manual" | "auto";
 };
 
 const DEFAULT_SETTINGS: StudioSettings = {
@@ -76,6 +78,7 @@ const DEFAULT_SETTINGS: StudioSettings = {
   pauseEachRound: true,
   pauseEachTurn: false,
   controlPartyTurns: true,
+  combatAutomation: "manual",
 };
 
 const SETTINGS_FILE = path.join(process.cwd(), "logs", "tactics", ".settings.json");
@@ -101,6 +104,10 @@ function loadStudioSettings(): StudioSettings {
           typeof raw.controlPartyTurns === "boolean"
             ? raw.controlPartyTurns
             : DEFAULT_SETTINGS.controlPartyTurns,
+        combatAutomation:
+          raw.combatAutomation === "auto" || raw.combatAutomation === "manual"
+            ? raw.combatAutomation
+            : DEFAULT_SETTINGS.combatAutomation,
       };
     }
   } catch {
@@ -115,6 +122,12 @@ function persistStudioSettings(settings: StudioSettings): void {
 }
 
 let studioSettings: StudioSettings = loadStudioSettings();
+
+function applyAutomationToSession(): void {
+  companionSession.setAutomationMode(studioSettings.combatAutomation);
+}
+
+applyAutomationToSession();
 
 let runHooks: StudioRunHooks = {};
 let runInFlight = false;
@@ -314,7 +327,11 @@ async function handleStudioApi(
       if (typeof body.controlPartyTurns === "boolean") {
         studioSettings.controlPartyTurns = body.controlPartyTurns;
       }
+      if (body.combatAutomation === "auto" || body.combatAutomation === "manual") {
+        studioSettings.combatAutomation = body.combatAutomation;
+      }
       persistStudioSettings(studioSettings);
+      applyAutomationToSession();
       json(res, 200, studioSettings);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -348,9 +365,11 @@ async function handleStudioApi(
             if (ok) llm = ollama;
           }
           console.error(
-            `[studio] saveTacticsLogs=${studioSettings.saveTacticsLogs} pauseEachRound=${studioSettings.pauseEachRound} pauseEachTurn=${studioSettings.pauseEachTurn} controlPartyTurns=${studioSettings.controlPartyTurns} saveRuns=${runHooks.save !== false}`,
+            `[studio] saveTacticsLogs=${studioSettings.saveTacticsLogs} combatAutomation=${studioSettings.combatAutomation} pauseEachRound=${studioSettings.pauseEachRound} pauseEachTurn=${studioSettings.pauseEachTurn} controlPartyTurns=${studioSettings.controlPartyTurns} saveRuns=${runHooks.save !== false}`,
           );
-          const controlParty = studioSettings.controlPartyTurns;
+          applyAutomationToSession();
+          const auto = studioSettings.combatAutomation === "auto";
+          const controlParty = !auto && studioSettings.controlPartyTurns;
           const result = await runEncounter(fixture, {
             seed: runHooks.seed ?? 42,
             save: runHooks.save !== false,
@@ -362,6 +381,8 @@ async function handleStudioApi(
             companion: companionSession,
             pauseEachRound: studioSettings.pauseEachRound,
             pauseEachTurn: studioSettings.pauseEachTurn,
+            combatAutomation: studioSettings.combatAutomation,
+            autoCheckInEvery: 10,
             play: controlParty || !!runHooks.play,
             chooser: controlParty ? companionSession.createUiChooser() : undefined,
           });
@@ -450,6 +471,18 @@ async function handleStudioApi(
       ok: true,
       message: "Combat cleared — ready for a new run",
       ...studioSummary(studioState),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && pathname === "/api/combat/stop-auto") {
+    const ok = companionSession.requestStopAuto();
+    json(res, ok ? 200 : 409, {
+      ok,
+      message: ok
+        ? "Auto will check in at the end of this round"
+        : "Auto is not running",
+      context: companionSession.context,
     });
     return true;
   }
@@ -800,6 +833,7 @@ export async function startCompanionServer(opts?: {
             model: ollama.modelName,
             studio: studioSummary(studioState),
             runInFlight,
+            settings: studioSettings,
           }),
         );
         return;

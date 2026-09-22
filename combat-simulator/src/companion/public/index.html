@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Combat Studio</title>
-    <link rel="stylesheet" href="/styles.css?v=25" />
+    <link rel="stylesheet" href="/styles.css?v=26" />
   </head>
   <body>
     <div class="shell">
@@ -26,6 +26,12 @@
                 <p class="meta">Import PCs &amp; enemies as JSON, map as an image, then build and run.</p>
               </div>
               <div class="pills header-actions">
+                <div class="mode-toggle" role="group" aria-label="Combat automation">
+                  <button type="button" class="mode-btn active" data-automation="manual">
+                    Manual
+                  </button>
+                  <button type="button" class="mode-btn" data-automation="auto">Auto</button>
+                </div>
                 <button type="button" id="loadSampleBtn" class="accent-btn">Load sample combat</button>
                 <span id="readyPill" class="pill muted">not ready</span>
               </div>
@@ -143,9 +149,16 @@
               </div>
               <div class="pills header-actions">
                 <span id="phase" class="pill">idle</span>
+                <div class="mode-toggle" role="group" aria-label="Combat automation">
+                  <button type="button" class="mode-btn active" data-automation="manual">
+                    Manual
+                  </button>
+                  <button type="button" class="mode-btn" data-automation="auto">Auto</button>
+                </div>
                 <button type="button" id="advanceRoundBtn" class="accent-btn" hidden>
                   Start Round 1 (Enter)
                 </button>
+                <button type="button" id="stopAutoBtn" class="ghost" hidden>Stop auto</button>
                 <button type="button" id="clearCombatBtn" class="ghost">Clear</button>
               </div>
             </header>
@@ -177,7 +190,7 @@
               </aside>
             </div>
             <div id="roundStage" class="round-stage" tabindex="0">
-              <p class="round-empty meta">Run combat from Setup — pauses follow Settings (rounds and/or turns). Press Enter to continue.</p>
+              <p class="round-empty meta">Run combat from Setup — Manual pauses for Enter; Auto runs until Stop or a 10-round check-in.</p>
             </div>
             <!-- legacy ids kept for polling helpers -->
             <pre id="status" hidden></pre>
@@ -349,12 +362,31 @@
             </span>
             <input type="checkbox" id="saveTacticsLogs" checked />
           </label>
+          <fieldset class="settings-row settings-fieldset">
+            <legend class="settings-label">
+              Combat automation
+              <span class="settings-hint"
+                >Manual is turn-by-turn (Enter to continue). Auto keeps resolving until you Stop or it
+                checks in after 10 rounds.</span
+              >
+            </legend>
+            <div class="mode-toggle">
+              <label class="mode-opt">
+                <input type="radio" name="combatAutomation" value="manual" checked />
+                Manual
+              </label>
+              <label class="mode-opt">
+                <input type="radio" name="combatAutomation" value="auto" />
+                Auto
+              </label>
+            </div>
+          </fieldset>
           <label class="settings-row">
             <span class="settings-label">
               Pause between rounds?
               <span class="settings-hint"
-                >After each full round, wait for Enter before the next. Also enables deploy before Round
-                1 (with turn pauses).</span
+                >Manual only. After each full round, wait for Enter before the next. Also enables
+                deploy before Round 1 (with turn pauses).</span
               >
             </span>
             <input type="checkbox" id="pauseEachRound" checked />
@@ -363,8 +395,8 @@
             <span class="settings-label">
               Pause between each enemy or PC turn?
               <span class="settings-hint"
-                >After each combatant finishes their actions, wait for Enter. The battle map updates
-                live at every turn pause.</span
+                >Manual only. After each combatant finishes their actions, wait for Enter. The battle
+                map updates live at every turn pause.</span
               >
             </span>
             <input type="checkbox" id="pauseEachTurn" />
@@ -388,6 +420,6 @@
       </div>
     </div>
 
-    <script src="/app.js?v=25"></script>
+    <script src="/app.js?v=26"></script>
   </body>
 </html>

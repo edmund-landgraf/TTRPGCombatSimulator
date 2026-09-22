@@ -135,7 +135,9 @@ export type CombatContext = {
   /** True when the sim is paused (deploy, between rounds, or between turns); UI shows Enter to continue. */
   waitingForAdvance: boolean;
   /** Why the sim is paused — drives Next turn vs Next round button copy. */
-  pauseKind?: "deploy" | "round" | "turn";
+  pauseKind?: "deploy" | "round" | "turn" | "checkin";
+  /** Studio automation mode for this live run (manual = Enter each pause). */
+  automationMode?: "manual" | "auto";
   /** Token drag allowed during deploy and between-round/turn pauses. */
   canMoveTokens?: boolean;
   /** Initiative order with turns already spent this round. */
@@ -190,10 +192,20 @@ export class CompanionSession {
   context: CombatContext | null = null;
   chat: ChatMessage[] = [];
   logLines: string[] = [];
+  /** In-progress round action log streamed to the UI (not only at round end). */
+  liveActionLog = "";
   rounds: RoundSnapshot[] = [];
   waitingForAdvance = false;
   /** Active memory while a run is in flight (for deploy-time token moves). */
   liveMemory: CombatMemory | null = null;
+  /** manual = Enter between turns/rounds; auto = run until stop or check-in. */
+  automationMode: "manual" | "auto" = "manual";
+  /** Rounds to run unpaused in auto before waiting for the user. */
+  autoCheckInEvery = 10;
+  /** Round number when the current auto batch started (inclusive). */
+  autoBatchStartRound = 0;
+  /** UI asked auto to halt at the next round boundary. */
+  autoStopRequested = false;
 
   /** Turn cursor published into CombatContext. */
   activeActorId: string | null = null;
@@ -219,24 +231,52 @@ export class CompanionSession {
     this.context = null;
     this.chat = [];
     this.logLines = [];
+    this.liveActionLog = "";
     this.rounds = [];
     this.waitingForAdvance = false;
     this.liveMemory = null;
     this.clearTurnCursor();
     this.cancelPlayerChoice("Combat session reset");
     this.cancelWaiters();
+    this.autoStopRequested = false;
+    this.autoBatchStartRound = 0;
   }
 
   /** Clear live combat display so the next Run starts clean; keeps side chat. */
   clearCombatForNewRun(): void {
     this.context = null;
     this.logLines = [];
+    this.liveActionLog = "";
     this.rounds = [];
     this.waitingForAdvance = false;
     this.liveMemory = null;
     this.clearTurnCursor();
     this.cancelPlayerChoice("Combat cleared");
     this.cancelWaiters();
+    this.autoStopRequested = false;
+    this.autoBatchStartRound = 0;
+  }
+
+  setAutomationMode(mode: "manual" | "auto"): void {
+    if (mode === this.automationMode) return;
+    this.automationMode = mode;
+    this.autoStopRequested = false;
+    if (mode === "auto") {
+      this.autoBatchStartRound = this.liveMemory?.round ?? 0;
+    }
+  }
+
+  requestStopAuto(): boolean {
+    if (this.automationMode !== "auto" || !this.liveMemory) return false;
+    this.autoStopRequested = true;
+    return true;
+  }
+
+  /** True when auto should pause after this round (stop request or 10-round batch). */
+  shouldAutoCheckIn(round: number): boolean {
+    if (this.automationMode !== "auto") return false;
+    if (this.autoStopRequested) return true;
+    return round - this.autoBatchStartRound >= this.autoCheckInEvery;
   }
 
   clearTurnCursor(): void {
@@ -354,6 +394,10 @@ export class CompanionSession {
   advance(): boolean {
     if (!this.waitingForAdvance) return false;
     this.waitingForAdvance = false;
+    this.autoStopRequested = false;
+    if (this.automationMode === "auto") {
+      this.autoBatchStartRound = this.liveMemory?.round ?? this.context?.round ?? 0;
+    }
     this.syncDisplayBoard();
     this.resolveWaiters("advanced");
     if (this.liveMemory) {
@@ -380,7 +424,7 @@ export class CompanionSession {
    */
   waitForAdvance(
     phase: "waiting" | "deploy" = "waiting",
-    opts?: { pauseKind?: "deploy" | "round" | "turn" },
+    opts?: { pauseKind?: "deploy" | "round" | "turn" | "checkin" },
   ): Promise<"advanced" | "cancelled"> {
     this.waitingForAdvance = true;
     const pauseKind = opts?.pauseKind ?? (phase === "deploy" ? "deploy" : "round");
@@ -465,7 +509,7 @@ export class CompanionSession {
       endReason?: string;
       winner?: string;
       actionLog?: string;
-      pauseKind?: "deploy" | "round" | "turn";
+      pauseKind?: "deploy" | "round" | "turn" | "checkin";
     },
   ): void {
     this.liveMemory = mem;
@@ -518,6 +562,7 @@ export class CompanionSession {
       (this.waitingForAdvance
         ? (this.context?.pauseKind ?? (phase === "deploy" ? "deploy" : "round"))
         : undefined);
+    if (opts?.actionLog != null) this.liveActionLog = opts.actionLog;
     this.context = {
       updatedAt: new Date().toISOString(),
       encounterName: mem.name,
@@ -546,10 +591,15 @@ export class CompanionSession {
           : canMoveTokens || phase === "active"
             ? liveSummary
             : latest?.summaryText ?? liveSummary,
-      recentLog: opts?.actionLog ?? latest?.actionLog ?? this.logLines.slice(-80).join("\n"),
+      recentLog:
+        opts?.actionLog ??
+        this.liveActionLog ||
+        latest?.actionLog ||
+        this.logLines.slice(-80).join("\n"),
       combatants,
       waitingForAdvance: this.waitingForAdvance,
       pauseKind: this.waitingForAdvance ? pauseKind : undefined,
+      automationMode: this.automationMode,
       canMoveTokens,
       actedThisRound: [...this.actedThisRound],
       lastTurnSummary: this.lastTurnSummary,
