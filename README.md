@@ -1,4 +1,4 @@
-# TTRPG Combat Simulator
+# TTRPG Combat Simulator (readme)
 
 A Pathfinder Second Edition (PF2e) combat simulator that runs encounters from JSON fixtures, enforces rules in code, and uses an AI tactics layer to choose actions. The engine owns dice rolls, HP, positioning, and state; an optional LLM layer narrates rounds or answers questions in the companion UI.
 
