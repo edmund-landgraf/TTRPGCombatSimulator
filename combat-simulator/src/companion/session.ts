@@ -593,9 +593,9 @@ export class CompanionSession {
             : latest?.summaryText ?? liveSummary,
       recentLog:
         opts?.actionLog ??
-        this.liveActionLog ||
-        latest?.actionLog ||
-        this.logLines.slice(-80).join("\n"),
+        (this.liveActionLog ||
+          latest?.actionLog ||
+          this.logLines.slice(-80).join("\n")),
       combatants,
       waitingForAdvance: this.waitingForAdvance,
       pauseKind: this.waitingForAdvance ? pauseKind : undefined,
